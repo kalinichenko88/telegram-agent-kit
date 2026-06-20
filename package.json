@@ -1,0 +1,38 @@
+{
+  "name": "telegram-agent-kit",
+  "version": "0.0.0",
+  "description": "Render markdown to Telegram, stream agent replies into live drafts, and drive a snapshot/rollback turn-loop — runtime-agnostic.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ivan Kalinichenko",
+  "engines": { "node": ">=18" },
+  "files": ["dist"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./deepagents": {
+      "types": "./dist/deepagents/index.d.ts",
+      "import": "./dist/deepagents/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1",
+    "deepagents": ">=1"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": { "optional": true },
+    "deepagents": { "optional": true }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
