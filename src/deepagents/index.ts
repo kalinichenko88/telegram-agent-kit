@@ -1,2 +1,4 @@
-// Placeholder — replaced in Task 10 with streamAgent + toAgentStream.
-export const __deepagents = 'telegram-agent-kit/deepagents';
+export { streamAgent } from './stream-agent.ts';
+export type { StreamAgentInput } from './stream-agent.ts';
+export { toAgentStream } from './to-agent-stream.ts';
+export type { RenderEvent } from '../bridge/interfaces.ts';
