@@ -43,10 +43,7 @@ function setup(opts: { cancelThrows?: boolean; rich?: boolean } = {}) {
 
   const record =
     (method: 'rich' | 'plain') =>
-    (
-      p: { text?: string; markdown?: string },
-      signal?: AbortSignal,
-    ) => {
+    (p: { text?: string; markdown?: string }, signal?: AbortSignal) => {
       drafts.push({ method, text: p.markdown ?? p.text ?? '' });
       const d = deferred();
       lastDraft = d;

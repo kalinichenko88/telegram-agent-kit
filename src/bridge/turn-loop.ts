@@ -41,7 +41,9 @@ export type RunTelegramTurnOpts = {
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
 
-export async function runTelegramTurn(opts: RunTelegramTurnOpts): Promise<void> {
+export async function runTelegramTurn(
+  opts: RunTelegramTurnOpts,
+): Promise<void> {
   const now = opts.now ?? (() => Date.now());
   const log = opts.log ?? NOOP_LOG;
   const makeDraftStreamer = opts.makeDraftStreamer ?? createDraftStreamer;
@@ -64,14 +66,14 @@ export async function runTelegramTurn(opts: RunTelegramTurnOpts): Promise<void> 
 
     // 2. preStream — before any snapshot, outside rollback. Sync-throw safe.
     if (opts.hooks?.preStream) {
-      let res: void | { skip?: boolean };
+      let res: { skip?: boolean } | undefined;
       try {
-        res = await opts.hooks.preStream(ctx);
+        res = (await opts.hooks.preStream(ctx)) ?? undefined;
       } catch (err) {
         log.error('telegram preStream hook failed', { err: String(err) });
         res = undefined;
       }
-      if (res && res.skip) return;
+      if (res?.skip) return;
     }
 
     // 3. resolve thread.

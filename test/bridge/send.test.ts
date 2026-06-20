@@ -1,7 +1,6 @@
 import { expect, test, vi } from 'vitest';
-
-import { sendReply } from '../../src/bridge/send.ts';
 import type { BotClient, Logger } from '../../src/bridge/interfaces.ts';
+import { sendReply } from '../../src/bridge/send.ts';
 import { TelegramApiError } from '../../src/errors.ts';
 
 const noopLog: Logger = { warn: () => {}, error: () => {} };
@@ -36,7 +35,11 @@ test('rich send 400 falls back to classic sendMessage and warns text-less', asyn
   expect(c.sendMessage).toHaveBeenCalledTimes(1);
   expect(warn).toHaveBeenCalledWith(
     'telegram rich fallback',
-    expect.objectContaining({ method: 'sendRichMessage', error_code: 400, chatId: 1 }),
+    expect.objectContaining({
+      method: 'sendRichMessage',
+      error_code: 400,
+      chatId: 1,
+    }),
   );
   // the warn payload must NOT carry the message text
   expect(warn.mock.calls[0]?.[1]).not.toHaveProperty('text');

@@ -590,7 +590,9 @@ describe('extractTrailingCover', () => {
 
 describe('extractTrailingCover — type pin', () => {
   test('returns { url, body } for a standalone trailing image', () => {
-    expect(extractTrailingCover('hi there\n\n![cover](https://x/y.png)')).toEqual({
+    expect(
+      extractTrailingCover('hi there\n\n![cover](https://x/y.png)'),
+    ).toEqual({
       url: 'https://x/y.png',
       body: 'hi there',
     });

@@ -69,10 +69,7 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
           { chatId, draftId, markdown: text },
           controller.signal,
         )
-      : client.sendMessageDraft(
-          { chatId, draftId, text },
-          controller.signal,
-        );
+      : client.sendMessageDraft({ chatId, draftId, text }, controller.signal);
     inFlight = op
       .then(() => {
         lastSent = text; // raw; the keepalive re-sends it via the current mode

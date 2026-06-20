@@ -51,7 +51,9 @@ async function sendRich(
   log: Logger,
   signal?: AbortSignal,
 ): Promise<void> {
-  for (const piece of chunkRich(neutralizeRichMedia(repairRichTables(markdown)))) {
+  for (const piece of chunkRich(
+    neutralizeRichMedia(repairRichTables(markdown)),
+  )) {
     try {
       await client.sendRichMessage({ chatId, markdown: piece }, signal);
     } catch (err) {
