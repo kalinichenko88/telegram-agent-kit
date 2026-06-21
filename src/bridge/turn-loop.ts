@@ -31,6 +31,7 @@ export type RunTelegramTurnOpts = {
   hooks?: {
     preStream?: (
       ctx: TurnContext,
+      // biome-ignore lint/suspicious/noConfusingVoidType: `void` (not `undefined`) so a hook may return any value and have it ignored — narrowing to `undefined` would reject that.
     ) => void | { skip?: boolean } | Promise<void | { skip?: boolean }>;
     beforeTurn?: (ctx: TurnContext) => void | Promise<void>;
     afterTurn?: (ctx: TurnContext) => void | Promise<void>;
