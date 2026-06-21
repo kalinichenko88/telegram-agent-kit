@@ -35,18 +35,18 @@ peer-isolation guarantee.
 
 ## Architecture: three layers + an optional adapter
 
-The dependency direction is strictly **L3 → L2 → L1**; lower layers never import higher
-ones. Each layer has a barrel `index.ts`; `src/index.ts` re-exports L1+L2+L3 (but not
-`/deepagents`, which is a separate package entry point).
+The dependency direction is strictly **Bridge → Draft → Formatting**; lower layers
+never import higher ones. Each layer has a barrel `index.ts`; `src/index.ts` re-exports
+all three layers (but not `/deepagents`, which is a separate package entry point).
 
-- **L1 — formatting (`src/format/`, pure, zero deps):** `mdToTelegramHtml`,
+- **Formatting (`src/format/`, pure, zero deps):** `mdToTelegramHtml`,
   `chunkText` / `safeSlice` / `chunkRich`, and the rich helpers `repairRichTables` /
   `neutralizeRichMedia` / `extractTrailingCover`. Browser-safe.
-- **L2 — draft engine (`src/draft/`):** `createDraftStreamer` — a throttle / keepalive /
+- **Draft engine (`src/draft/`):** `createDraftStreamer` — a throttle / keepalive /
   typing-heartbeat / preview-cap / drain state machine that animates a single live
   Telegram draft from a growing text. Tunables live in `src/draft/constants.ts`
   (`DEFAULT_DRAFT_CONSTANTS`), overridable per call.
-- **L3 — turn-loop bridge (`src/bridge/`):** `runTelegramTurn` orchestrates one turn
+- **Turn-loop bridge (`src/bridge/`):** `runTelegramTurn` orchestrates one turn
   (`turn-loop.ts`) and `sendReply` orchestrates the final send (`send.ts`). The four
   injectable interfaces are defined in `interfaces.ts`.
 - **`/deepagents` (`src/deepagents/`, optional subpath):** `toAgentStream` / `streamAgent`

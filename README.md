@@ -119,18 +119,18 @@ and the core never imports the adapter.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  /deepagents  (optional subpath)                             │
-│  toAgentStream · streamAgent  →  AgentStream                 │
+│  /deepagents  (optional subpath)                            │
+│  toAgentStream · streamAgent  →  AgentStream                │
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│  L3  bridge   runTelegramTurn · sendReply · sendText        │
+│  Bridge       runTelegramTurn · sendReply · sendText        │
 │               + the four interfaces you implement           │
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│  L2  draft    createDraftStreamer (throttle/keepalive/drain)│
+│  Draft        createDraftStreamer (throttle/keepalive/drain)│
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│  L1  format   mdToTelegramHtml · chunk* · rich helpers      │
+│  Format       mdToTelegramHtml · chunk* · rich helpers      │
 │               pure, zero deps, browser-safe                 │
 └─────────────────────────────────────────────────────────────┘
 ```
