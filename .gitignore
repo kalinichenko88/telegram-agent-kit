@@ -1,3 +1,10 @@
 node_modules
 dist
 *.log
+
+# superpowers (Claude Code) — generated docs and runtime state
+docs/superpowers/
+docs/plans/
+.superpowers/
+.superpowers-session.json
+.superpowersSkills
