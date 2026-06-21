@@ -1,10 +1,32 @@
 {
   "name": "telegram-agent-kit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Render markdown to Telegram, stream agent replies into live drafts, and drive a snapshot/rollback turn-loop — runtime-agnostic.",
   "type": "module",
   "license": "MIT",
   "author": "Ivan Kalinichenko",
+  "homepage": "https://github.com/kalinichenko88/telegram-agent-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kalinichenko88/telegram-agent-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kalinichenko88/telegram-agent-kit/issues"
+  },
+  "keywords": [
+    "telegram",
+    "telegram-bot",
+    "bot-api",
+    "llm",
+    "agent",
+    "agents",
+    "streaming",
+    "markdown",
+    "html",
+    "langgraph",
+    "deepagents",
+    "esm"
+  ],
   "engines": {
     "node": ">=18"
   },
