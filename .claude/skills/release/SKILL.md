@@ -7,8 +7,9 @@ description: >-
   "release it" or "let's publish". Drives the whole local side of the release:
   derive the next semver version from the commit history, write the CHANGELOG
   section, sync package.json, run the full verification suite, commit, push, and
-  (only after explicit confirmation) tag — the tag push is what triggers the
-  GitHub Actions npm-publish workflow.
+  (only after explicit confirmation) tag — the tag push triggers the GitHub Actions
+  npm-publish workflow. Then open a draft GitHub Release with friendly notes and
+  publish it once CI confirms the npm publish succeeded.
 ---
 
 # Releasing telegram-agent-kit
@@ -25,11 +26,14 @@ derive the version from the tag. So the one invariant this skill exists to prote
 is: **`package.json` version === the tag name without the leading `v`.** If they
 ever drift, you publish the wrong version.
 
-Your job is everything that happens *before* the tag push: pick the version, write
-the changelog, sync `package.json`, prove the build is green, commit, and push.
-Then you hand the trigger (`git push origin vX.Y.Z`) to the user after an explicit
-confirmation, because pushing the tag publishes to npm and **an npm version can't
-be unpublished — only deprecated.**
+Your job is everything around that CI publish: pick the version, write the
+changelog, sync `package.json`, prove the build is green, commit, push, and — after
+an explicit confirmation, because pushing the tag publishes to npm and **an npm
+version can't be unpublished, only deprecated** — push the tag. You also own the
+GitHub Release: create it as a **draft** right after tagging, then **publish the
+draft only once CI confirms the npm publish succeeded**. That ordering means a
+failed publish never leaves a public GitHub Release pointing at a version nobody can
+install.
 
 ## Preconditions — check before doing anything
 
@@ -148,13 +152,13 @@ git push origin main
 Only `package.json` and `CHANGELOG.md` should be in this commit. `dist/` is
 gitignored and must not be staged.
 
-## Step 7 — Tag → publish (explicit confirmation required)
+## Step 7 — Tag, then open a DRAFT GitHub Release (explicit confirmation required)
 
 This is the irreversible step. **Before tagging, ask the user to confirm in plain
 terms**, e.g.: "Ready to publish `v<version>` to npm? Pushing the tag triggers the
 release workflow and the version cannot be unpublished — only deprecated. Proceed?"
 
-Only after an explicit yes:
+Only after an explicit yes, push the tag:
 
 ```sh
 git tag v<version>
@@ -164,22 +168,56 @@ git push origin v<version>      # ← triggers release.yml → npm publish
 Double-check the tag matches `package.json` before pushing: `v` + the version you
 just committed. If they don't match, stop — fix the mismatch first.
 
-## Step 8 — Watch the release
+Then immediately create the GitHub Release **as a draft**. It stays a draft until
+the npm publish actually succeeds (Step 8), so a failed publish never leaves a
+public release pointing at a version that isn't on npm.
 
-After the tag push, point the user at the run, and watch it if `gh` is available:
+```sh
+gh release create v<version> --draft --title "v<version>" --notes "<release notes>"
+```
+
+`gh` uses the local user's auth (scope `repo`), so no workflow permission changes
+are needed. The tag already exists on the remote, so the release attaches to it.
+
+### Writing the release notes
+
+These notes are **for humans skimming the Releases page**, not for the changelog
+reader. Keep them warm and high-level — **minimise technical detail**:
+
+- Open with one or two sentences on what this release gives the user / what changed.
+- Then a short bullet list of the headline, user-facing changes in plain language.
+- **Leave out** internals: no test names, file paths, commit hashes, CI/build/lint
+  notes, or refactors that don't change behaviour. If it wouldn't matter to someone
+  installing the package, drop it.
+- For a first release, frame it as an introduction ("what this package does")
+  rather than a diff.
+- End with a pointer to the full changelog, e.g. `See CHANGELOG.md for full detail.`
+
+Derive the substance from the same commits, but rewrite — don't paste the CHANGELOG
+section. The changelog is the precise record; the release note is the friendly pitch.
+
+## Step 8 — Watch CI, then publish the release
+
+Watch the publish workflow (the tag push started it; the run may take a few seconds
+to appear, so retry the list once if it's empty):
 
 ```sh
 gh run watch --exit-status $(gh run list --workflow=release.yml --limit=1 --json databaseId -q '.[0].databaseId')
 ```
 
-When it's green, confirm the new version is live:
+**On success** — confirm the version is live, then flip the draft to published:
 
 ```sh
-npm view telegram-agent-kit version
+npm view telegram-agent-kit version          # should print <version>
+gh release edit v<version> --draft=false      # publish the GitHub Release
 ```
 
-Report the published version and the npm/Actions URLs. If the workflow fails (e.g.
-a `403` means `NPM_TOKEN` is missing/expired, a `--provenance` error usually means
-the `repository` field is missing from `package.json`), surface the failing log and
-stop — the tag is already pushed, so the fix is to address the cause and cut the
-next patch, not to retag the same version.
+Report the published version plus the npm and GitHub Release URLs.
+
+**On failure** — leave the GitHub Release as a draft (do not publish it) and surface
+the failing log. Common causes: a `403` means `NPM_TOKEN` is missing/expired; a
+`--provenance` error usually means the `repository` field is missing from
+`package.json`. The tag is already pushed, so the fix is to address the cause and
+cut the **next** patch — never retag the same version. The lingering draft is
+harmless; delete it (`gh release delete v<version>`) or keep it to publish once a
+re-cut succeeds.
