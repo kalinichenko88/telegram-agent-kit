@@ -2,6 +2,22 @@ import { expect, test } from 'vitest';
 
 import { stripReservedKeys } from '../../src/deepagents/to-agent-stream.ts';
 
+test('stripReservedKeys returns {} for an empty bag', () => {
+  expect(stripReservedKeys({})).toEqual({});
+});
+
+test('stripReservedKeys returns {} when every key is reserved', () => {
+  expect(
+    stripReservedKeys({
+      thread_id: 'x',
+      checkpoint_id: 'cp',
+      checkpoint_ns: 'ns',
+      checkpoint_map: {},
+      run_id: 'r',
+    }),
+  ).toEqual({});
+});
+
 test('stripReservedKeys passes through non-reserved keys unchanged', () => {
   expect(stripReservedKeys({ pendingImages: ['img1'], foo: 'bar' })).toEqual({
     pendingImages: ['img1'],

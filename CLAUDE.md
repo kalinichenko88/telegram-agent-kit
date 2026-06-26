@@ -60,9 +60,10 @@ The caller implements these; the kit owns all orchestration over them.
 - **`BotClient`** — *raw* Bot API transport primitives, one HTTP call each, **no**
   chunking/rendering/fallback. Each must throw `TelegramApiError` (from `src/errors.ts`)
   on a Bot API error so the deterministic-400 fallbacks fire.
-- **`AgentStream`** — `(input, { threadId, signal }) => AsyncIterable<RenderEvent>`. The
-  `threadId` MUST reach the agent so the checkpointer snapshots/rolls back the same
-  thread.
+- **`AgentStream`** — `(input, { threadId, signal, configurable }) => AsyncIterable<RenderEvent>`.
+  The `threadId` MUST reach the agent so the checkpointer snapshots/rolls back the same
+  thread. `configurable` is an optional pass-through bag forwarded verbatim from
+  `runTelegramTurn`'s `configurable` option.
 - **`Checkpointer`** — `{ snapshot(threadId), rollback(threadId, id) }`.
 - **`ThreadStore`** — `{ resolve(key, now), touch(key, now) }`, keyed by
   `{ chatId, agentId }` so two bots sharing one chat id don't collide.
@@ -90,7 +91,11 @@ These are intentional and enforced by tests — preserve them when editing.
   *optional* peer deps imported with `import type` only, and externalized in
   `tsup.config.ts`. The built `/deepagents` bundle must contain no runtime import of
   either (the no-peers dist-grep test). The langgraph config shape (`thread_id`) is
-  centralized in `src/deepagents/to-agent-stream.ts` — keep it there.
+  centralized in `src/deepagents/to-agent-stream.ts` — keep it there. That file also
+  owns the reserved-key strip (`thread_id`, `checkpoint_id`, `checkpoint_ns`,
+  `checkpoint_map`, `run_id`) applied to the caller's `configurable` before merging it
+  under the kit-owned `thread_id` (spread last, so it always wins) — pinned by
+  `test/deepagents/configurable-strip.test.ts` and `test/deepagents/to-agent-stream.test.ts`.
 - **Surrogate-safe splitting:** `chunkText` / `safeSlice` / `chunkRich` must never sever
   a UTF-16 surrogate pair. Limits: classic text `TELEGRAM_LIMIT` 4096 (target 4000),
   rich `RICH_LIMIT` 32768, photo caption 1024.

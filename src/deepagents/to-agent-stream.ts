@@ -21,9 +21,11 @@ export function stripReservedKeys(
   );
 }
 
-/** Adapt a deepagents agent to the kit's runtime-agnostic AgentStream: build
- *  the langgraph config from context.threadId, forward the signal. This is the
- *  ONLY place the langgraph config shape lives. */
+/** Adapt a deepagents agent to the kit's runtime-agnostic AgentStream: merge the
+ *  caller's `configurable` bag (with reserved checkpoint-routing keys stripped)
+ *  under the kit-owned `thread_id`, and forward the signal. The kit's `thread_id`
+ *  is spread last so it always wins, even if stripping ever misses a key. This is
+ *  the ONLY place the langgraph config shape lives. */
 export function toAgentStream(agent: Agent): AgentStream {
   return (input, context) => {
     const extra = context.configurable ?? {};

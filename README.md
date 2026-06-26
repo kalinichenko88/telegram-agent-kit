@@ -147,7 +147,7 @@ You implement these; the kit drives them.
 | Interface      | Shape                                                                 | Role |
 | -------------- | --------------------------------------------------------------------- | ---- |
 | `BotClient`    | `sendMessage`, `sendRichMessage`, `sendPhoto`, `sendChatAction`, `sendMessageDraft`, `sendRichMessageDraft` | Raw transport. Each throws `TelegramApiError` on a Bot API error. |
-| `AgentStream`  | `(input, { threadId, signal }) => AsyncIterable<RenderEvent>`          | Your agent. `threadId` **must** reach it so the checkpointer writes to the snapshotted thread. |
+| `AgentStream`  | `(input, { threadId, signal, configurable }) => AsyncIterable<RenderEvent>` | Your agent. `threadId` **must** reach it so the checkpointer writes to the snapshotted thread. `configurable` is an optional pass-through bag forwarded verbatim from `runTelegramTurn`'s `configurable` option. |
 | `Checkpointer` | `{ snapshot(threadId), rollback(threadId, id) }`                       | Per-thread snapshot/rollback for clean recovery on a failed turn. |
 | `ThreadStore`  | `{ resolve(chatKey, now), touch(chatKey, now) }`                      | Maps `{ chatId, agentId }` to a thread id (so two bots over one chat id don't collide). |
 
@@ -175,6 +175,8 @@ appends `token` text to the live draft and treats an `error` event as a rollback
 **Bridge**
 
 - `runTelegramTurn(opts)` — orchestrate one turn. Never throws out; every failure is caught and logged.
+  Accepts an optional `configurable` bag forwarded to your `AgentStream` as `context.configurable`,
+  for passing per-turn data (e.g. `pendingImages`) to the agent without widening the core input type.
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
 - Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`.
 
@@ -186,6 +188,9 @@ appends `token` text to the live draft and treats an `error` event as a rollback
 ### Optional entry — `telegram-agent-kit/deepagents`
 
 - `toAgentStream(agent)` → `AgentStream` — adapts a deepagents/langgraph agent to the kit's contract.
+  The `context.configurable` bag is merged into the LangGraph `RunnableConfig`, but the reserved keys
+  `thread_id`, `checkpoint_id`, `checkpoint_ns`, `checkpoint_map`, and `run_id` are stripped so the kit
+  retains full control over checkpoint routing.
 - `streamAgent(agent, input, config, signal?)` — lower-level event stream if you need direct control.
 
 > `@langchain/core` and `deepagents` are **type-only, optional** peers. The built
