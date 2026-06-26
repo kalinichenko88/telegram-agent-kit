@@ -43,7 +43,11 @@ export type RenderEvent =
   | { type: 'error'; message: string };
 
 export type StreamInput = { messages: { role: 'user'; content: string }[] };
-export type AgentStreamContext = { threadId: string; signal?: AbortSignal };
+export type AgentStreamContext = {
+  threadId: string;
+  signal?: AbortSignal;
+  configurable?: Record<string, unknown>;
+};
 export type AgentStream = (
   input: StreamInput,
   context: AgentStreamContext,
