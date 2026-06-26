@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 — 2026-06-26
+
+- **Turn-loop bridge** — `runTelegramTurn` now accepts a `configurable`
+  bag that is forwarded verbatim to the `AgentStream` (and on through to
+  the agent's run config), so callers can thread per-turn context to their
+  agent.
+- **`/deepagents`** — `toAgentStream` merges the caller's `configurable`
+  under the kit-owned `thread_id`, stripping reserved LangGraph keys
+  (`thread_id`, `thread_ts`, `checkpoint_*`, `run_id`, `__pregel_*`) so a
+  caller bag can never clobber checkpointer routing.
+
 ## 0.1.0 — 2026-06-21
 
 - Initial release:
