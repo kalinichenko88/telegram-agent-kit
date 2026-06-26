@@ -32,6 +32,35 @@ test('toAgentStream: pendingImages reaches RunnableConfig; caller thread_id/chec
   spy.mockRestore();
 });
 
+test('toAgentStream: caller thread_ts and __pregel_* never reach streamAgent', async () => {
+  const spy = vi
+    .spyOn(streamAgentMod, 'streamAgent')
+    .mockImplementation(async function* () {});
+
+  const stream = toAgentStream({} as never);
+  const input = { messages: [{ role: 'user' as const, content: 'hi' }] };
+
+  for await (const _ of stream(input, {
+    threadId: 'kit-thread',
+    configurable: {
+      pendingImages: ['img1'],
+      thread_ts: 'caller-checkpoint',
+      __pregel_checkpointer: { rogue: true },
+    },
+  })) {
+    // drain
+  }
+
+  expect(spy).toHaveBeenCalledWith(
+    expect.anything(),
+    input,
+    { configurable: { pendingImages: ['img1'], thread_id: 'kit-thread' } },
+    undefined,
+  );
+
+  spy.mockRestore();
+});
+
 test('toAgentStream: emits only { thread_id } when no configurable is supplied', async () => {
   const spy = vi
     .spyOn(streamAgentMod, 'streamAgent')

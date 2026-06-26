@@ -189,8 +189,9 @@ appends `token` text to the live draft and treats an `error` event as a rollback
 
 - `toAgentStream(agent)` → `AgentStream` — adapts a deepagents/langgraph agent to the kit's contract.
   The `context.configurable` bag is merged into the LangGraph `RunnableConfig`, but the reserved keys
-  `thread_id`, `checkpoint_id`, `checkpoint_ns`, `checkpoint_map`, and `run_id` are stripped so the kit
-  retains full control over checkpoint routing.
+  `thread_id`, `thread_ts`, `checkpoint_id`, `checkpoint_ns`, `checkpoint_map`, and `run_id` — plus any
+  `__pregel_*` LangGraph internal-execution key — are stripped so the kit retains full control over
+  checkpoint routing and execution.
 - `streamAgent(agent, input, config, signal?)` — lower-level event stream if you need direct control.
 
 > `@langchain/core` and `deepagents` are **type-only, optional** peers. The built

@@ -92,8 +92,9 @@ These are intentional and enforced by tests — preserve them when editing.
   `tsup.config.ts`. The built `/deepagents` bundle must contain no runtime import of
   either (the no-peers dist-grep test). The langgraph config shape (`thread_id`) is
   centralized in `src/deepagents/to-agent-stream.ts` — keep it there. That file also
-  owns the reserved-key strip (`thread_id`, `checkpoint_id`, `checkpoint_ns`,
-  `checkpoint_map`, `run_id`) applied to the caller's `configurable` before merging it
+  owns the reserved-key strip (`thread_id`, `thread_ts`, `checkpoint_id`,
+  `checkpoint_ns`, `checkpoint_map`, `run_id`, plus any `__pregel_*` LangGraph
+  internal-execution key) applied to the caller's `configurable` before merging it
   under the kit-owned `thread_id` (spread last, so it always wins) — pinned by
   `test/deepagents/configurable-strip.test.ts` and `test/deepagents/to-agent-stream.test.ts`.
 - **Surrogate-safe splitting:** `chunkText` / `safeSlice` / `chunkRich` must never sever
