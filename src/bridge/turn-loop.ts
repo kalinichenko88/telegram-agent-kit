@@ -38,6 +38,7 @@ export type RunTelegramTurnOpts = {
   };
   makeDraftStreamer?: (deps: DraftStreamerDeps) => DraftStreamer;
   draftConstants?: Partial<DraftConstants>;
+  configurable?: Record<string, unknown>;
 };
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
@@ -100,7 +101,7 @@ export async function runTelegramTurn(
     let errored = false;
     for await (const ev of opts.agentStream(
       { messages: [{ role: 'user', content: opts.userText }] },
-      { threadId, signal: opts.signal },
+      { threadId, signal: opts.signal, configurable: opts.configurable },
     )) {
       if (ev.type === 'token') {
         reply += ev.text;

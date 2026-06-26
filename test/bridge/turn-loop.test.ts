@@ -109,3 +109,25 @@ test('a throwing afterTurn hook is swallowed (never throws out)', async () => {
   });
   await expect(runTelegramTurn(d)).resolves.toBeUndefined();
 });
+
+test('opts.configurable is forwarded to agentStream context', async () => {
+  let capturedConfigurable: Record<string, unknown> | undefined;
+  const stream: AgentStream = async function* (_input, ctx) {
+    capturedConfigurable = ctx.configurable;
+    yield { type: 'token', text: 'ok' };
+  };
+  await runTelegramTurn(
+    deps({ agentStream: stream, configurable: { pendingImages: ['img1'] } }),
+  );
+  expect(capturedConfigurable).toEqual({ pendingImages: ['img1'] });
+});
+
+test('context.configurable is undefined when opts.configurable is not set', async () => {
+  let capturedConfigurable: Record<string, unknown> | undefined;
+  const stream: AgentStream = async function* (_input, ctx) {
+    capturedConfigurable = ctx.configurable;
+    yield { type: 'token', text: 'ok' };
+  };
+  await runTelegramTurn(deps({ agentStream: stream }));
+  expect(capturedConfigurable).toBeUndefined();
+});
