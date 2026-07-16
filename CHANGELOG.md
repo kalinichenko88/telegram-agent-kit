@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-07-16
+
+- **`/deepagents` (breaking)** — `RenderEvent` is now `token` | `error` only;
+  the unconsumed `tool_start` / `tool_end` variants are removed, and
+  `streamAgent` no longer emits them (the turn-loop only ever drove the draft
+  and rollback off `token` / `error`). The `StreamAgentInput` export is dropped
+  in favour of the shared `StreamInput` type, re-exported from the subpath.
+- **Turn-loop bridge / Draft engine** — internal simplification: removed the
+  unused `makeDraftStreamer` override (the draft streamer is still fully tunable
+  via `draftConstants`) and the unused optional `Logger.info`.
+
 ## 0.2.0 — 2026-06-26
 
 - **Turn-loop bridge** — `runTelegramTurn` now accepts a `configurable`
