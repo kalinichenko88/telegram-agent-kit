@@ -2,7 +2,6 @@ import {
   createDraftStreamer,
   type DraftConstants,
   type DraftStreamer,
-  type DraftStreamerDeps,
 } from '../draft/index.ts';
 import type {
   AgentStream,
@@ -36,7 +35,6 @@ export type RunTelegramTurnOpts = {
     beforeTurn?: (ctx: TurnContext) => void | Promise<void>;
     afterTurn?: (ctx: TurnContext) => void | Promise<void>;
   };
-  makeDraftStreamer?: (deps: DraftStreamerDeps) => DraftStreamer;
   draftConstants?: Partial<DraftConstants>;
   configurable?: Record<string, unknown>;
 };
@@ -48,7 +46,6 @@ export async function runTelegramTurn(
 ): Promise<void> {
   const now = opts.now ?? (() => Date.now());
   const log = opts.log ?? NOOP_LOG;
-  const makeDraftStreamer = opts.makeDraftStreamer ?? createDraftStreamer;
   const ctx: TurnContext = { chatKey: opts.chatKey, userText: opts.userText };
 
   let rollback: { threadId: string; checkpointId: string | null } | null = null;
@@ -86,7 +83,7 @@ export async function runTelegramTurn(
     rollback = { threadId, checkpointId };
 
     // 5. start the draft streamer.
-    draft = makeDraftStreamer({
+    draft = createDraftStreamer({
       client: opts.client,
       chatId: opts.chatKey.chatId,
       draftId: opts.draftId,
