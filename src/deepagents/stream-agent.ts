@@ -1,25 +1,14 @@
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type { createDeepAgent } from 'deepagents';
 
-import type { RenderEvent } from '../bridge/interfaces.ts';
+import type { RenderEvent, StreamInput } from '../bridge/interfaces.ts';
 
 type Agent = ReturnType<typeof createDeepAgent>;
 
-export type StreamAgentInput = {
-  messages: Array<{ role: 'user'; content: string }>;
-};
-
 type LangGraphEvent = {
   event: string;
-  run_id: string;
-  name?: string;
   metadata?: { langgraph_node?: string };
-  data?: {
-    chunk?: { content?: unknown };
-    input?: unknown;
-    output?: unknown;
-    error?: unknown;
-  };
+  data?: { chunk?: { content?: unknown } };
 };
 
 function extractText(content: unknown): string {
@@ -39,27 +28,12 @@ function extractText(content: unknown): string {
   return '';
 }
 
-function extractToolError(output: unknown): string | undefined {
-  if (typeof output !== 'object' || output === null) return undefined;
-  const o = output as { status?: unknown; content?: unknown };
-  if (o.status !== 'error') return undefined;
-  const c = o.content;
-  if (typeof c === 'string') return c;
-  try {
-    return JSON.stringify(c);
-  } catch {
-    return String(c);
-  }
-}
-
 export async function* streamAgent(
   agent: Agent,
-  input: StreamAgentInput,
+  input: StreamInput,
   config: RunnableConfig,
   signal?: AbortSignal,
 ): AsyncIterable<RenderEvent> {
-  const toolStart = new Map<string, number>();
-
   const iter = agent.streamEvents(input, {
     ...config,
     signal,
@@ -72,29 +46,6 @@ export async function* streamAgent(
         if (ev.metadata?.langgraph_node !== 'model_request') continue;
         const text = extractText(ev.data?.chunk?.content);
         if (text) yield { type: 'token', text };
-      } else if (ev.event === 'on_tool_start') {
-        toolStart.set(ev.run_id, Date.now());
-        yield {
-          type: 'tool_start',
-          id: ev.run_id,
-          name: ev.name ?? 'unknown',
-          args: ev.data?.input,
-        };
-      } else if (ev.event === 'on_tool_end' || ev.event === 'on_tool_error') {
-        const startedAt = toolStart.get(ev.run_id) ?? Date.now();
-        toolStart.delete(ev.run_id);
-        const error =
-          ev.event === 'on_tool_error'
-            ? ev.data?.error instanceof Error
-              ? ev.data.error.message
-              : String(ev.data?.error ?? 'tool error')
-            : extractToolError(ev.data?.output);
-        yield {
-          type: 'tool_end',
-          id: ev.run_id,
-          durationMs: Date.now() - startedAt,
-          ...(error !== undefined ? { error } : {}),
-        };
       }
     }
   } catch (err) {

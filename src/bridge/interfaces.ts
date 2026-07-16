@@ -3,7 +3,6 @@ export type ChatKey = { chatId: number; agentId: string };
 export type Logger = {
   warn(msg: string, data?: unknown): void;
   error(msg: string, data?: unknown): void;
-  info?(msg: string, data?: unknown): void;
 };
 
 /** Raw Bot API transport primitives — one HTTP call each, NO chunking /
@@ -38,8 +37,6 @@ export type BotClient = {
 
 export type RenderEvent =
   | { type: 'token'; text: string }
-  | { type: 'tool_start'; id: string; name: string; args: unknown }
-  | { type: 'tool_end'; id: string; durationMs: number; error?: string }
   | { type: 'error'; message: string };
 
 export type StreamInput = { messages: { role: 'user'; content: string }[] };

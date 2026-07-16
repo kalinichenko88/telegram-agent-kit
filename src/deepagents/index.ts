@@ -1,4 +1,3 @@
-export type { RenderEvent } from '../bridge/interfaces.ts';
-export type { StreamAgentInput } from './stream-agent.ts';
+export type { RenderEvent, StreamInput } from '../bridge/interfaces.ts';
 export { streamAgent } from './stream-agent.ts';
 export { toAgentStream } from './to-agent-stream.ts';

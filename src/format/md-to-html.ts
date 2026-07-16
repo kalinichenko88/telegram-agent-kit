@@ -164,8 +164,9 @@ function renderLinks(text: string, autoClose: boolean): string {
   }
 }
 
-/** Code spans pair first — their content is opaque to links and marks. */
-function renderCode(text: string, autoClose: boolean): string {
+/** One line of inline markdown → HTML: code spans pair first (their content is
+ *  opaque to links and marks), then links, then marks. */
+function renderInline(text: string, autoClose: boolean): string {
   let out = '';
   let rest = text;
   for (;;) {
@@ -194,11 +195,6 @@ function renderCode(text: string, autoClose: boolean): string {
       `<code>${escapeHtml(rest.slice(open + 1, close))}</code>`;
     rest = rest.slice(close + 1);
   }
-}
-
-/** One line of inline markdown → HTML: code spans → links → marks. */
-function renderInline(line: string, autoClose: boolean): string {
-  return renderCode(line, autoClose);
 }
 
 const FENCE_OPEN_RE = /^(`{3,}|~{3,})\s*(.*)$/;
