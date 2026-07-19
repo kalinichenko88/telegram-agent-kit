@@ -42,6 +42,25 @@ test('rich: true still sends table-less prose as classic HTML', async () => {
   );
 });
 
+test('a table with no blank line above it still goes rich', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, `Итого:\n${TABLE}`, { rich: true, log: noopLog });
+  expect(c.sendRichMessage).toHaveBeenCalledTimes(1);
+});
+
+test('inline media is neutralized on the classic path too', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, 'see ![chart](https://x/y.png) here', {
+    rich: true,
+    log: noopLog,
+  });
+  // Classic has no image renderer either: without neutralizing, the user sees
+  // raw `![chart](…)` markdown.
+  const [[sent]] = (c.sendMessage as ReturnType<typeof vi.fn>).mock.calls;
+  expect(sent.text).not.toContain('![');
+  expect(sent.text).toContain('https://x/y.png');
+});
+
 test('rich send 400 falls back to classic sendMessage and warns text-less', async () => {
   const warn = vi.fn();
   const c = fakeClient({

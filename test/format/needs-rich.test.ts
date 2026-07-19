@@ -17,6 +17,21 @@ describe('needsRich', () => {
     expect(needsRich('intro\n\n| a | b |\n|:-:|--:|\n| 1 | 2 |')).toBe(true);
   });
 
+  it('finds a table that has no blank line above it', () => {
+    // Models put a lead-in line right on top of the table constantly; a
+    // block-first-line scan misses every one of these, and classic has no table
+    // renderer, so a miss ships literal pipes.
+    expect(needsRich('Итого:\n| a | b |\n|---|---|\n| 1 | 2 |')).toBe(true);
+    expect(needsRich('## Report\n| a | b |\n|---|---|')).toBe(true);
+    expect(needsRich('- a\n- b\n| a | b |\n|---|---|')).toBe(true);
+    expect(needsRich('```\nx\n```\n| a | b |\n|---|---|')).toBe(true);
+  });
+
+  it('finds a table past a non-\\n\\n block break', () => {
+    expect(needsRich('intro\n\n\n| a | b |\n|---|---|')).toBe(true);
+    expect(needsRich('intro\r\n\r\n| a | b |\r\n|---|---|')).toBe(true);
+  });
+
   it('is false for pipes that are not a table', () => {
     expect(needsRich('a | b or c')).toBe(false);
     expect(needsRich('| stray | row |\n| another | row |')).toBe(false); // no delimiter

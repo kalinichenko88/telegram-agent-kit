@@ -1,6 +1,7 @@
 import type { BotClient, Logger } from '../bridge/interfaces.ts';
 import { isBadRequest } from '../errors.ts';
 import { safeSlice } from '../format/chunk.ts';
+import { needsRich } from '../format/rich.ts';
 import { DEFAULT_DRAFT_CONSTANTS, type DraftConstants } from './constants.ts';
 
 type IntervalHandle = ReturnType<typeof setInterval>;
@@ -63,7 +64,12 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
     const controller = new AbortController();
     inFlightController = controller;
     lastAttemptAt = t;
-    const usingRich = richMode;
+    // Same gate as the final send: rich only for text that needs it. Without it
+    // the draft animates a whole turn in the rich renderer's body font and then
+    // the final message lands in the normal one — the mismatch is the visible
+    // half of the problem. Re-evaluated per write, so a draft flips to rich the
+    // moment a table's delimiter row streams in.
+    const usingRich = richMode && needsRich(text);
     const op = usingRich
       ? client.sendRichMessageDraft(
           { chatId, draftId, markdown: text },

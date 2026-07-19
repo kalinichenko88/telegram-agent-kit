@@ -206,18 +206,25 @@ export function repairRichTables(md: string): string {
  *  rich schema is `RichBlockSectionHeading.size`). So routing prose to classic is
  *  the only way to keep ordinary replies looking like ordinary messages.
  *
- *  Code regions are skipped, using the SAME walk as `repairRichTables`: a table
- *  inside a fence or an HTML `<pre>`/`<code>` region is a literal example, and
- *  classic renders it as code perfectly well — it is not a reason to go rich.
- *  Only a header+delimiter table counts; stray pipe rows print as literal pipes
- *  either way. Pure and total. */
+ *  Scanned per LINE, not per blank-line block: a table needs no blank line above
+ *  it, and models routinely put one directly under a lead-in line, a heading, a
+ *  list, or a closing fence. A block-first-line check misses every one of those
+ *  (and every table after `\n\n\n` or in CRLF output, where the block split
+ *  lands wrong) — and a missed table is the one case where classic is WORSE:
+ *  it has no table renderer, so the reply goes out as literal pipes.
+ *
+ *  Code regions are skipped, using the SAME `advanceCodeRegion` walk as
+ *  `repairRichTables`: a table inside a fence or an HTML `<pre>`/`<code>` region
+ *  is a literal example, and classic renders it as code perfectly well — it is
+ *  not a reason to go rich. Only a header+delimiter pair counts; stray pipe rows
+ *  print as literal pipes either way. Pure and total. */
 export function needsRich(md: string): boolean {
   if (!md.includes('|')) return false; // fast path: no tables possible
+  const lines = md.split('\n');
   let region: CodeRegion | null = null;
-  for (const block of md.split('\n\n')) {
-    const lines = block.split('\n');
-    if (region === null && isTableBlock(lines)) return true;
-    region = advanceCodeRegion(region, lines);
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (region === null && isTableBlock(lines.slice(i, i + 2))) return true;
+    region = advanceCodeRegion(region, [lines[i] ?? '']);
   }
 
   return false;

@@ -105,11 +105,27 @@ function setup(opts: { cancelThrows?: boolean; rich?: boolean } = {}) {
   };
 }
 
+// A draft goes rich only for text that needs the rich renderer (needsRich) —
+// same gate as the final send, so the animation and the message that replaces
+// it use the same renderer. Prose under rich: true streams plain.
+const TABLE = '| a | b |\n|---|---|\n| 1 | 2 |';
+
 describe('DraftStreamer', () => {
   test('first push flushes immediately at now()===0', () => {
     const s = setup();
     s.streamer.push('a');
-    expect(s.drafts).toEqual([{ method: 'rich', text: 'a' }]);
+    expect(s.drafts).toEqual([{ method: 'plain', text: 'a' }]);
+  });
+
+  test('rich:true streams plain until the text needs rich, then flips', async () => {
+    const s = setup({ rich: true });
+    s.streamer.push('Итого:\n| a | b |'); // header only — no table yet
+    expect(s.drafts[0]?.method).toBe('plain');
+    s.resolveDraft();
+    await s.settle();
+    s.advance(300);
+    s.streamer.push(`Итого:\n${TABLE}`); // delimiter row landed → rich
+    expect(s.drafts[1]?.method).toBe('rich');
   });
 
   test('rich:false (kill-switch) streams a plain draft from the first push', () => {
@@ -126,7 +142,7 @@ describe('DraftStreamer', () => {
     s.advance(300);
     s.streamer.push('ab');
     expect(s.drafts.length).toBe(2);
-    expect(s.drafts.every((d) => d.method === 'rich')).toBe(true);
+    expect(s.drafts.every((d) => d.method === 'plain')).toBe(true);
   });
 
   test('throttles content writes by attempt time', async () => {
@@ -267,8 +283,8 @@ describe('DraftStreamer', () => {
 
   test('a 400 flips rich->plain without burning the failure budget', async () => {
     const s = setup({ rich: true });
-    s.streamer.push('| a |');
-    expect(s.drafts[0]).toEqual({ method: 'rich', text: '| a |' });
+    s.streamer.push(TABLE);
+    expect(s.drafts[0]).toEqual({ method: 'rich', text: TABLE });
     s.rejectDraft(new TelegramApiError(400, "can't parse rich message"));
     await s.settle();
     s.advance(300);
@@ -286,11 +302,11 @@ describe('DraftStreamer', () => {
 
   test('keepalive re-sends as plain after a 400 rich->plain flip', async () => {
     const s = setup({ rich: true });
-    s.streamer.push('| a |'); // rich draft #1
+    s.streamer.push(TABLE); // rich draft #1
     s.rejectDraft(new TelegramApiError(400, "can't parse rich message"));
     await s.settle();
     s.advance(300);
-    s.streamer.push('| a | b |'); // content draft #2, now plain
+    s.streamer.push(`${TABLE}\n| 3 | 4 |`); // content draft #2, now plain
     expect(s.drafts[1]?.method).toBe('plain');
     s.resolveDraft();
     await s.settle();
@@ -299,6 +315,9 @@ describe('DraftStreamer', () => {
     // The keepalive must use the flipped (plain) mode — never re-send rich
     // markdown Telegram already rejected (which would 400 every ~20s).
     expect(s.drafts.length).toBe(3);
-    expect(s.drafts[2]).toEqual({ method: 'plain', text: '| a | b |' });
+    expect(s.drafts[2]).toEqual({
+      method: 'plain',
+      text: `${TABLE}\n| 3 | 4 |`,
+    });
   });
 });
