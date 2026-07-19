@@ -72,6 +72,45 @@ test('error event → abort + rollback to snapshot, no reply', async () => {
   expect(d.client.sendRichMessage).not.toHaveBeenCalled();
 });
 
+test('error event → logs the message and sends errorNotice as plain text', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'error', message: 'boom' };
+  };
+  const error = vi.fn();
+  const d = deps({
+    agentStream: stream,
+    errorNotice: 'нет связи с моделью, повтори',
+    log: { warn: () => {}, error },
+  });
+  await runTelegramTurn(d);
+  expect(error).toHaveBeenCalledWith(
+    'telegram turn errored',
+    expect.objectContaining({ err: 'boom' }),
+  );
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      chatId: 1,
+      text: 'нет связи с моделью, повтори',
+    }),
+    undefined,
+  );
+  expect(d.client.sendRichMessage).not.toHaveBeenCalled();
+});
+
+test('errorNotice is skipped when the turn was aborted via signal', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'error', message: 'canceled' };
+  };
+  const d = deps({
+    agentStream: stream,
+    errorNotice: 'oops',
+    signal: AbortSignal.abort(),
+  });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).not.toHaveBeenCalled();
+  expect(d.checkpointer.rollback).toHaveBeenCalledWith('tg-1-main', 'cp-1');
+});
+
 test('throw mid-stream → rollback, never rethrows', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'partial' };
