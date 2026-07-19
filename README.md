@@ -151,9 +151,9 @@ You implement these; the kit drives them.
 | `Checkpointer` | `{ snapshot(threadId), rollback(threadId, id) }`                       | Per-thread snapshot/rollback for clean recovery on a failed turn. |
 | `ThreadStore`  | `{ resolve(chatKey, now), touch(chatKey, now) }`                      | Maps `{ chatId, agentId }` to a thread id (so two bots over one chat id don't collide). |
 
-A `RenderEvent` is either `token` or `error`. The kit appends `token` text to the live
-draft; an `error` event rolls the turn back, logs the message, and — if you pass
-`errorNotice` — tells the user in the chat instead of going silent.
+A `RenderEvent` is either `token` or `error`: `token` text is appended to the live draft,
+an `error` rolls the turn back, logs the message, and — if you pass `errorNotice` — tells
+the user in the chat instead of going silent.
 
 ## API reference
 

@@ -11,7 +11,7 @@ import type {
   Logger,
   ThreadStore,
 } from './interfaces.ts';
-import { sendReply, sendText } from './send.ts';
+import { sendReply } from './send.ts';
 
 export type TurnContext = { chatKey: ChatKey; userText: string };
 
@@ -39,10 +39,7 @@ export type RunTelegramTurnOpts = {
   configurable?: Record<string, unknown>;
   /** Plain-text line sent to the chat when the stream errors out (model chain
    *  exhausted, graph threw). Without it the turn returns silently and the user
-   *  sees only a draft that stops moving — indistinguishable from being ignored.
-   *  Opt-in and caller-owned because the kit ships no user-facing copy and has no
-   *  language to pick. Never sent when the turn was aborted via `signal` — that
-   *  cancellation is the caller's own, and it already knows. */
+   *  sees only a draft that stops moving — indistinguishable from being ignored. */
   errorNotice?: string;
 };
 
@@ -129,18 +126,18 @@ export async function runTelegramTurn(
         .catch((e: unknown) =>
           log.error('telegram rollback failed', { err: String(e) }),
         );
-      if (opts.errorNotice !== undefined && !opts.signal?.aborted) {
-        // Plain, never rich: the notice fires when things are already broken, so
-        // it must not depend on the markdown path that could be broken too.
-        await sendText(
-          opts.client,
-          opts.chatKey.chatId,
-          opts.errorNotice,
-          { rich: false, log },
-          opts.signal,
-        ).catch((e: unknown) =>
-          log.error('telegram error notice failed', { err: String(e) }),
-        );
+      // Raw sendMessage, not the send path: the notice fires when things are
+      // already broken, so it must not route through rendering that could be
+      // broken too. Skipped on abort — that cancellation is the caller's own.
+      if (opts.errorNotice && !opts.signal?.aborted) {
+        await opts.client
+          .sendMessage(
+            { chatId: opts.chatKey.chatId, text: opts.errorNotice },
+            opts.signal,
+          )
+          .catch((e: unknown) =>
+            log.error('telegram error notice failed', { err: String(e) }),
+          );
       }
 
       return;

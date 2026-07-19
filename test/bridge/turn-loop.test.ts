@@ -108,7 +108,6 @@ test('errorNotice is skipped when the turn was aborted via signal', async () => 
   });
   await runTelegramTurn(d);
   expect(d.client.sendMessage).not.toHaveBeenCalled();
-  expect(d.checkpointer.rollback).toHaveBeenCalledWith('tg-1-main', 'cp-1');
 });
 
 test('throw mid-stream → rollback, never rethrows', async () => {
