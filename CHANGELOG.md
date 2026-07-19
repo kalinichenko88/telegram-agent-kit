@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-07-19
+
+- **Turn-loop bridge** — a failed turn is no longer silent. An `error` event
+  from the agent stream used to end the turn with nothing logged and nothing
+  sent, leaving the user with a draft that just stopped moving; rollback then
+  erased the turn from history, so the failure was unobservable afterwards.
+  The message is now logged at error level, and a new opt-in `errorNotice`
+  option on `runTelegramTurn` sends caller-owned copy to the chat as plain
+  text. It is skipped when the turn was aborted via `signal`, since that
+  cancellation is the caller's own.
+
 ## 0.3.0 — 2026-07-16
 
 - **`/deepagents` (breaking)** — `RenderEvent` is now `token` | `error` only;
