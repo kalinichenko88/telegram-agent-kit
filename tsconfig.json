@@ -10,7 +10,12 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    // tsup's dts build hardcodes `baseUrl: compilerOptions.baseUrl || "."`
+    // (node_modules/tsup/dist/rollup.js), and TS6 errors on baseUrl as a
+    // TS7 deprecation. We never set baseUrl ourselves — drop this once tsup
+    // ships a dts build that doesn't inject it.
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src", "test"]
 }
