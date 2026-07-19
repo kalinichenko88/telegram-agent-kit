@@ -12,22 +12,17 @@ describe('needsRich', () => {
     );
   });
 
-  it('is true for a real GFM table', () => {
+  it('is true for a real GFM table, wherever the header row sits', () => {
+    // Everything below the first two lines is a shape a block-first-line scan
+    // misses — a lead-in line, a heading, a list, a closing fence, or a break
+    // that isn't exactly '\n\n'. Classic has no table renderer, so a miss ships
+    // literal pipes.
     expect(needsRich('| a | b |\n|---|---|\n| 1 | 2 |')).toBe(true);
     expect(needsRich('intro\n\n| a | b |\n|:-:|--:|\n| 1 | 2 |')).toBe(true);
-  });
-
-  it('finds a table that has no blank line above it', () => {
-    // Models put a lead-in line right on top of the table constantly; a
-    // block-first-line scan misses every one of these, and classic has no table
-    // renderer, so a miss ships literal pipes.
     expect(needsRich('Итого:\n| a | b |\n|---|---|\n| 1 | 2 |')).toBe(true);
     expect(needsRich('## Report\n| a | b |\n|---|---|')).toBe(true);
     expect(needsRich('- a\n- b\n| a | b |\n|---|---|')).toBe(true);
     expect(needsRich('```\nx\n```\n| a | b |\n|---|---|')).toBe(true);
-  });
-
-  it('finds a table past a non-\\n\\n block break', () => {
     expect(needsRich('intro\n\n\n| a | b |\n|---|---|')).toBe(true);
     expect(needsRich('intro\r\n\r\n| a | b |\r\n|---|---|')).toBe(true);
   });

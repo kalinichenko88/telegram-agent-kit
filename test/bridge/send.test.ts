@@ -42,12 +42,6 @@ test('rich: true still sends table-less prose as classic HTML', async () => {
   );
 });
 
-test('a table with no blank line above it still goes rich', async () => {
-  const c = fakeClient();
-  await sendReply(c, 1, `Итого:\n${TABLE}`, { rich: true, log: noopLog });
-  expect(c.sendRichMessage).toHaveBeenCalledTimes(1);
-});
-
 test('inline media is neutralized on the classic path too', async () => {
   const c = fakeClient();
   await sendReply(c, 1, 'see ![chart](https://x/y.png) here', {
