@@ -37,6 +37,10 @@ export type RunTelegramTurnOpts = {
   };
   draftConstants?: Partial<DraftConstants>;
   configurable?: Record<string, unknown>;
+  /** Plain-text line sent to the chat when the stream errors out (model chain
+   *  exhausted, graph threw). Without it the turn returns silently and the user
+   *  sees only a draft that stops moving — indistinguishable from being ignored. */
+  errorNotice?: string;
 };
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
@@ -95,7 +99,7 @@ export async function runTelegramTurn(
 
     // 6. stream.
     let reply = '';
-    let errored = false;
+    let errorMessage: string | undefined;
     for await (const ev of opts.agentStream(
       { messages: [{ role: 'user', content: opts.userText }] },
       { threadId, signal: opts.signal, configurable: opts.configurable },
@@ -103,11 +107,18 @@ export async function runTelegramTurn(
       if (ev.type === 'token') {
         reply += ev.text;
         draft.push(reply);
-      } else if (ev.type === 'error') errored = true;
+      } else if (ev.type === 'error') errorMessage = ev.message;
     }
 
-    // 7. errored → abort then rollback.
-    if (errored) {
+    // 7. errored → log, abort, rollback, tell the user.
+    if (errorMessage !== undefined) {
+      // The message is the ONLY record of why the turn died: the stream swallows
+      // the original throw into this event, and rollback then erases the turn from
+      // history. Drop it here and the failure is unobservable after the fact.
+      log.error('telegram turn errored', {
+        chatId: opts.chatKey.chatId,
+        err: errorMessage,
+      });
       draftTornDown = true;
       await draft.abort().catch(() => {});
       await opts.checkpointer
@@ -115,6 +126,19 @@ export async function runTelegramTurn(
         .catch((e: unknown) =>
           log.error('telegram rollback failed', { err: String(e) }),
         );
+      // Raw sendMessage, not the send path: the notice fires when things are
+      // already broken, so it must not route through rendering that could be
+      // broken too. Skipped on abort — that cancellation is the caller's own.
+      if (opts.errorNotice && !opts.signal?.aborted) {
+        await opts.client
+          .sendMessage(
+            { chatId: opts.chatKey.chatId, text: opts.errorNotice },
+            opts.signal,
+          )
+          .catch((e: unknown) =>
+            log.error('telegram error notice failed', { err: String(e) }),
+          );
+      }
 
       return;
     }

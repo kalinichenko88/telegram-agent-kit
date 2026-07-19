@@ -151,8 +151,9 @@ You implement these; the kit drives them.
 | `Checkpointer` | `{ snapshot(threadId), rollback(threadId, id) }`                       | Per-thread snapshot/rollback for clean recovery on a failed turn. |
 | `ThreadStore`  | `{ resolve(chatKey, now), touch(chatKey, now) }`                      | Maps `{ chatId, agentId }` to a thread id (so two bots over one chat id don't collide). |
 
-A `RenderEvent` is one of `token`, `tool_start`, `tool_end`, or `error`. The kit
-appends `token` text to the live draft and treats an `error` event as a rollback.
+A `RenderEvent` is either `token` or `error`: `token` text is appended to the live draft,
+an `error` rolls the turn back, logs the message, and — if you pass `errorNotice` — tells
+the user in the chat instead of going silent.
 
 ## API reference
 
@@ -177,6 +178,8 @@ appends `token` text to the live draft and treats an `error` event as a rollback
 - `runTelegramTurn(opts)` — orchestrate one turn. Never throws out; every failure is caught and logged.
   Accepts an optional `configurable` bag forwarded to your `AgentStream` as `context.configurable`,
   for passing per-turn data (e.g. `pendingImages`) to the agent without widening the core input type.
+  Pass `errorNotice` (plain text, your language) to have a failed turn say so in the chat —
+  omit it and the user just sees the draft stop, which reads as being ignored.
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
 - Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`.
 
