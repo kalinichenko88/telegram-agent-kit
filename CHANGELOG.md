@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — 2026-07-19
+
+- **Turn-loop bridge / Formatting** — `rich: true` now means *rich when it buys
+  something*, not *rich always*. Bot API rich messages have no body-typography
+  field, so every reply sent through the rich renderer looked unlike a normal
+  message; routing prose to classic is the only lever a bot has. A new
+  `needsRich(md)` predicate asks whether the text carries structure only the rich
+  renderer can draw — today, a GFM table — and drafts and final messages go rich
+  only when it does. Tables inside a fence or an HTML `<pre>`/`<code>` region are
+  literal examples and do not count. `rich: false` is unchanged and still the
+  kill-switch: HTML only, always.
+- **Turn-loop bridge / Draft engine** — the rich gate is applied per chunk and per
+  draft write, not once per reply. Previously a table in the first chunk sent every
+  later prose chunk rich, and drafts were never gated at all, so a turn could
+  animate rich and then land classic. `needsRich` also now scans line pairs rather
+  than block starts, so a table under a lead-in line, heading, list, or closing
+  fence — and tables in CRLF output — are detected instead of falling through to
+  classic, which has no table renderer and shipped literal pipes.
+  `neutralizeRichMedia` moved into the classic path too, which was rendering raw
+  `![alt](url)`.
+- **Requires Node 20+** (was 18+). Node 18 reached end-of-life in April 2025 and is
+  no longer covered by CI; the tested matrix is now Node 20, 22, and 24, plus Bun.
+  Runtime behaviour is unchanged — the core still has zero dependencies.
+
 ## 0.3.1 — 2026-07-19
 
 - **Turn-loop bridge** — a failed turn is no longer silent. An `error` event
