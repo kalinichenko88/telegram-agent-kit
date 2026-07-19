@@ -198,6 +198,38 @@ export function repairRichTables(md: string): string {
   return out.join('\n\n');
 }
 
+/** Does `md` carry structure only the rich renderer can draw? Today that means
+ *  one thing: a GFM table. Everything else a reply contains — bold, italic,
+ *  code, links, quotes, lists — classic HTML renders fine, and classic keeps the
+ *  client's normal message font, while the rich renderer sizes body text its own
+ *  way with no Bot API knob to override it (the only size field in the whole
+ *  rich schema is `RichBlockSectionHeading.size`). So routing prose to classic is
+ *  the only way to keep ordinary replies looking like ordinary messages.
+ *
+ *  Scanned per LINE, not per blank-line block: a table needs no blank line above
+ *  it, and models routinely put one directly under a lead-in line, a heading, a
+ *  list, or a closing fence. A block-first-line check misses every one of those
+ *  (and every table after `\n\n\n` or in CRLF output, where the block split
+ *  lands wrong) — and a missed table is the one case where classic is WORSE:
+ *  it has no table renderer, so the reply goes out as literal pipes.
+ *
+ *  Code regions are skipped, using the SAME `advanceCodeRegion` walk as
+ *  `repairRichTables`: a table inside a fence or an HTML `<pre>`/`<code>` region
+ *  is a literal example, and classic renders it as code perfectly well — it is
+ *  not a reason to go rich. Only a header+delimiter pair counts; stray pipe rows
+ *  print as literal pipes either way. Pure and total. */
+export function needsRich(md: string): boolean {
+  if (!md.includes('|')) return false; // fast path: no tables possible
+  const lines = md.split('\n');
+  let region: CodeRegion | null = null;
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (region === null && isTableBlock(lines.slice(i, i + 2))) return true;
+    region = advanceCodeRegion(region, [lines[i] ?? '']);
+  }
+
+  return false;
+}
+
 /** A whole line that is exactly one `![alt](http(s)://…)` image token. HTTP(S)
  *  required (matches RICH_MEDIA_RE's media branch); an angle-bracketed or tg://
  *  URL does not match. `[^)]*` swallows an optional "title" after the URL. */

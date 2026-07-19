@@ -111,6 +111,12 @@ async function call(method: string, body: unknown, signal?: AbortSignal) {
 > transport. If your bot has no rich endpoint, point them at plain `sendMessage`
 > and set `rich: false` — the kit then renders via HTML only.
 
+> **Note:** `rich: true` means *rich when it buys something*, not *rich always*.
+> Drafts and final messages go out rich only for text that needs the rich
+> renderer — today, a GFM table (`needsRich`); everything else is classic HTML, so
+> ordinary replies keep the client's normal message font. `rich: false` is still
+> the kill-switch: HTML only, always.
+
 ## How it works
 
 The kit is three layers plus one optional adapter. The dependency direction is
@@ -166,6 +172,8 @@ the user in the chat instead of going silent.
 - `chunkText(text)` / `safeSlice(text, max)` / `chunkRich(md)` — surrogate-safe splitting
   (classic limit 4096, rich limit 32768).
 - `repairRichTables(md)` · `neutralizeRichMedia(md)` · `extractTrailingCover(reply)` — rich helpers.
+- `needsRich(md)` — does this text need the rich renderer (today: does it contain a GFM
+  table, outside code)? The gate behind `rich: true`; everything else goes classic.
 
 **Draft engine**
 

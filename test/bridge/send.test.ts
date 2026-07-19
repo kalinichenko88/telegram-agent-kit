@@ -17,11 +17,42 @@ function fakeClient(over: Partial<BotClient> = {}): BotClient {
   };
 }
 
+// The rich path fires only for text that NEEDS it — today, a GFM table. Plain
+// prose under `rich: true` routes to classic on purpose (see sendText).
+const TABLE = '| a | b |\n|---|---|\n| 1 | 2 |';
+
 test('rich reply with no cover goes through sendRichMessage', async () => {
   const c = fakeClient();
-  await sendReply(c, 1, 'hello **world**', { rich: true, log: noopLog });
+  await sendReply(c, 1, `hello **world**\n\n${TABLE}`, {
+    rich: true,
+    log: noopLog,
+  });
   expect(c.sendRichMessage).toHaveBeenCalledTimes(1);
   expect(c.sendPhoto).not.toHaveBeenCalled();
+});
+
+test('rich: true still sends table-less prose as classic HTML', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, 'hello **world**', { rich: true, log: noopLog });
+  expect(c.sendRichMessage).not.toHaveBeenCalled();
+  expect(c.sendMessage).toHaveBeenCalledTimes(1);
+  expect(c.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ parseMode: 'HTML' }),
+    undefined,
+  );
+});
+
+test('inline media is neutralized on the classic path too', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, 'see ![chart](https://x/y.png) here', {
+    rich: true,
+    log: noopLog,
+  });
+  // Classic has no image renderer either: without neutralizing, the user sees
+  // raw `![chart](…)` markdown.
+  const [[sent]] = (c.sendMessage as ReturnType<typeof vi.fn>).mock.calls;
+  expect(sent.text).not.toContain('![');
+  expect(sent.text).toContain('https://x/y.png');
 });
 
 test('rich send 400 falls back to classic sendMessage and warns text-less', async () => {
@@ -31,7 +62,7 @@ test('rich send 400 falls back to classic sendMessage and warns text-less', asyn
       throw new TelegramApiError(400, 'bad');
     }),
   });
-  await sendReply(c, 1, 'hi', { rich: true, log: { warn, error: () => {} } });
+  await sendReply(c, 1, TABLE, { rich: true, log: { warn, error: () => {} } });
   expect(c.sendMessage).toHaveBeenCalledTimes(1);
   expect(warn).toHaveBeenCalledWith(
     'telegram rich fallback',
@@ -61,7 +92,7 @@ test('sendPhoto 400 falls back to neutralized text', async () => {
       throw new TelegramApiError(400, 'bad url');
     }),
   });
-  await sendReply(c, 1, 'body\n\n![c](https://x/y.png)', {
+  await sendReply(c, 1, `${TABLE}\n\n![c](https://x/y.png)`, {
     rich: true,
     log: noopLog,
   });
@@ -75,7 +106,7 @@ test('non-400 error propagates (no double-send)', async () => {
     }),
   });
   await expect(
-    sendReply(c, 1, 'hi', { rich: true, log: noopLog }),
+    sendReply(c, 1, TABLE, { rich: true, log: noopLog }),
   ).rejects.toThrow('network');
   expect(c.sendMessage).not.toHaveBeenCalled();
 });

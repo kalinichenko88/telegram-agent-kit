@@ -118,6 +118,11 @@ Conventions to follow:
 
 1. Bump `version` in `package.json` to the agreed value.
 2. Prepend the new section to `CHANGELOG.md`.
+3. Check `README.md` against the `feat:` / `feat!:` / `BREAKING CHANGE` commits from
+   Step 1 — a new public export, option, or changed default that the README doesn't
+   mention (or documents the old way) is a doc bug shipping with the release. Fix it
+   here so it lands in the same commit. Patch-only releases usually need nothing;
+   say so rather than editing for the sake of it.
 
 Re-read `package.json` after editing and confirm `version` is exactly the agreed
 string — this is the value CI will publish.
@@ -144,13 +149,13 @@ them for the user to fix — say which you did.
 ## Step 6 — Commit and push the branch
 
 ```sh
-git add package.json CHANGELOG.md
+git add package.json CHANGELOG.md README.md   # README only if Step 4 changed it
 git commit -m "chore: release v<version>"
 git push origin main
 ```
 
-Only `package.json` and `CHANGELOG.md` should be in this commit. `dist/` is
-gitignored and must not be staged.
+Only `package.json`, `CHANGELOG.md` and (when touched) `README.md` should be in this
+commit. `dist/` is gitignored and must not be staged.
 
 ## Step 7 — Tag, then open a DRAFT GitHub Release (explicit confirmation required)
 

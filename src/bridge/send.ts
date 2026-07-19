@@ -4,6 +4,7 @@ import {
   chunkText,
   extractTrailingCover,
   mdToTelegramHtml,
+  needsRich,
   neutralizeRichMedia,
   repairRichTables,
 } from '../format/index.ts';
@@ -43,7 +44,10 @@ async function sendClassic(
   }
 }
 
-/** Rich send with rich→classic 400 fallback (client.ts sendRichMessage). */
+/** Rich send with rich→classic 400 fallback (client.ts sendRichMessage). Each
+ *  chunk is gated on `needsRich` independently: a long reply whose table sits in
+ *  the first chunk should not drag every prose chunk after it into the rich
+ *  renderer. */
 async function sendRich(
   client: BotClient,
   chatId: number,
@@ -51,9 +55,11 @@ async function sendRich(
   log: Logger,
   signal?: AbortSignal,
 ): Promise<void> {
-  for (const piece of chunkRich(
-    neutralizeRichMedia(repairRichTables(markdown)),
-  )) {
+  for (const piece of chunkRich(repairRichTables(markdown))) {
+    if (!needsRich(piece)) {
+      await sendClassic(client, chatId, piece, signal);
+      continue;
+    }
     try {
       await client.sendRichMessage({ chatId, markdown: piece }, signal);
     } catch (err) {
@@ -69,7 +75,17 @@ async function sendRich(
   }
 }
 
-/** Active reply path — rich when opts.rich, else classic. */
+/** Active reply path — rich when `opts.rich`, but `sendRich` sends each chunk
+ *  rich only if it actually needs the rich renderer (`needsRich`), else classic.
+ *  `rich: true` means "rich when it buys something", not "rich always": the rich
+ *  renderer sizes body text its own way with no Bot API field to override it, so
+ *  pushing ordinary prose through it just makes every reply look unlike a normal
+ *  message for nothing.
+ *
+ *  Media is neutralized HERE, before the split, so it happens on BOTH paths:
+ *  classic has no image renderer either (`mdToTelegramHtml` leaves `![a](u)`
+ *  verbatim), so prose that routes to classic would otherwise show raw image
+ *  markdown. Idempotent, so `sendReply`'s photo-fallback re-entry is harmless. */
 export async function sendText(
   client: BotClient,
   chatId: number,
@@ -77,8 +93,9 @@ export async function sendText(
   opts: SendOpts,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (opts.rich) await sendRich(client, chatId, text, opts.log, signal);
-  else await sendClassic(client, chatId, text, signal);
+  const md = neutralizeRichMedia(text);
+  if (opts.rich) await sendRich(client, chatId, md, opts.log, signal);
+  else await sendClassic(client, chatId, md, signal);
 }
 
 /** Photo with caption: render caption HTML, retry plain on 400; a plain-retry
@@ -137,7 +154,7 @@ export async function sendReply(
     else await sendCover(client, chatId, cover.url, cover.body, signal);
   } catch (err) {
     if (!isBadRequest(err)) throw err;
-    await sendText(client, chatId, neutralizeRichMedia(reply), opts, signal);
+    await sendText(client, chatId, reply, opts, signal); // sendText neutralizes
 
     return;
   }
