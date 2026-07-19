@@ -189,6 +189,7 @@ the user in the chat instead of going silent.
   Pass `errorNotice` (plain text, your language) to have a failed turn say so in the chat —
   omit it and the user just sees the draft stop, which reads as being ignored.
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
+  `opts` is `{ rich: boolean, log: Logger }`, with the same `rich` semantics as above.
 - Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`.
 
 **Errors**
