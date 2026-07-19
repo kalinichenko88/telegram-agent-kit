@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/npm/l/telegram-agent-kit.svg)](./LICENSE)
 [![types](https://img.shields.io/npm/types/telegram-agent-kit.svg)](https://www.typescriptlang.org/)
 
-ESM-only. Runs on **Node 18+, Bun, Deno, and the browser** (the formatting core).
+ESM-only. Runs on **Node 20+, Bun, Deno, and the browser** (the formatting core).
 
 ---
 

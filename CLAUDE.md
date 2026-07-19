@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `telegram-agent-kit` is a published npm library (ESM-only) that wires LLM agents to
 Telegram. It is **runtime-agnostic** with **zero runtime dependencies in the core** —
-all I/O is supplied by the caller through thin injected interfaces. It runs on Node 18+,
+all I/O is supplied by the caller through thin injected interfaces. It runs on Node 20+,
 Bun, Deno, and the browser (core layers).
 
 ## Commands
