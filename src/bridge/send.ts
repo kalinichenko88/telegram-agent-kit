@@ -4,6 +4,7 @@ import {
   chunkText,
   extractTrailingCover,
   mdToTelegramHtml,
+  needsRich,
   neutralizeRichMedia,
   repairRichTables,
 } from '../format/index.ts';
@@ -69,7 +70,11 @@ async function sendRich(
   }
 }
 
-/** Active reply path — rich when opts.rich, else classic. */
+/** Active reply path — rich only when `opts.rich` AND the text actually needs
+ *  the rich renderer (`needsRich`), else classic. `rich: true` means "rich when
+ *  it buys something", not "rich always": the rich renderer sizes body text its
+ *  own way with no Bot API field to override it, so pushing ordinary prose
+ *  through it just makes every reply look unlike a normal message for nothing. */
 export async function sendText(
   client: BotClient,
   chatId: number,
@@ -77,7 +82,8 @@ export async function sendText(
   opts: SendOpts,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (opts.rich) await sendRich(client, chatId, text, opts.log, signal);
+  if (opts.rich && needsRich(text))
+    await sendRich(client, chatId, text, opts.log, signal);
   else await sendClassic(client, chatId, text, signal);
 }
 

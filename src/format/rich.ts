@@ -198,6 +198,31 @@ export function repairRichTables(md: string): string {
   return out.join('\n\n');
 }
 
+/** Does `md` carry structure only the rich renderer can draw? Today that means
+ *  one thing: a GFM table. Everything else a reply contains — bold, italic,
+ *  code, links, quotes, lists — classic HTML renders fine, and classic keeps the
+ *  client's normal message font, while the rich renderer sizes body text its own
+ *  way with no Bot API knob to override it (the only size field in the whole
+ *  rich schema is `RichBlockSectionHeading.size`). So routing prose to classic is
+ *  the only way to keep ordinary replies looking like ordinary messages.
+ *
+ *  Code regions are skipped, using the SAME walk as `repairRichTables`: a table
+ *  inside a fence or an HTML `<pre>`/`<code>` region is a literal example, and
+ *  classic renders it as code perfectly well — it is not a reason to go rich.
+ *  Only a header+delimiter table counts; stray pipe rows print as literal pipes
+ *  either way. Pure and total. */
+export function needsRich(md: string): boolean {
+  if (!md.includes('|')) return false; // fast path: no tables possible
+  let region: CodeRegion | null = null;
+  for (const block of md.split('\n\n')) {
+    const lines = block.split('\n');
+    if (region === null && isTableBlock(lines)) return true;
+    region = advanceCodeRegion(region, lines);
+  }
+
+  return false;
+}
+
 /** A whole line that is exactly one `![alt](http(s)://…)` image token. HTTP(S)
  *  required (matches RICH_MEDIA_RE's media branch); an angle-bracketed or tg://
  *  URL does not match. `[^)]*` swallows an optional "title" after the URL. */

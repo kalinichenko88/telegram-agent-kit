@@ -47,7 +47,8 @@ function deps(over: Record<string, unknown> = {}) {
 test('happy path: streams, finalizes, sends reply, touches, no rollback', async () => {
   const d = deps();
   await runTelegramTurn(d);
-  expect(d.client.sendRichMessage).toHaveBeenCalled();
+  // 'hello' is table-less prose, so even under rich: true it goes out classic.
+  expect(d.client.sendMessage).toHaveBeenCalled();
   expect(d.threadStore.touch).toHaveBeenCalled();
   expect(d.checkpointer.rollback).not.toHaveBeenCalled();
 });
