@@ -205,6 +205,10 @@ the user in the chat instead of going silent.
   `__pregel_*` LangGraph internal-execution key — are stripped so the kit retains full control over
   checkpoint routing and execution.
 - `streamAgent(agent, input, config, signal?)` — lower-level event stream if you need direct control.
+  Yields tokens from the **root** agent only: a delegated agent (a `subagents` entry, or the built-in
+  `task` tool) runs its own model node and LangChain replays its events into the parent stream, so
+  without this its monologue would interleave with the reply. Naming the root agent does not change
+  what streams.
 
 > `@langchain/core` and `deepagents` are **type-only, optional** peers. The built
 > `/deepagents` bundle contains no runtime import of either, so the core stays

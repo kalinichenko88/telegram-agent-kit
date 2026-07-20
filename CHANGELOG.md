@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1 — 2026-07-20
+
+- **/deepagents** — `streamAgent` no longer leaks a nested agent's tokens into the
+  parent stream. A delegated agent — a `subagents` entry, or the built-in `task`
+  tool — runs its *own* `model_request` node and LangChain replays its events into
+  the parent's `streamEvents`, so the previous `langgraph_node` check could not tell
+  the levels apart and a subagent's monologue interleaved with the reply the user
+  was reading. Nesting is now read off `checkpoint_ns`, which is `|`-joined per
+  level: the root is a single segment, anything delegated carries a separator.
+  Deliberately not keyed off `lc_agent_name` even though subagents do carry it —
+  `createDeepAgent({ name })` stamps that key on the *root* too, so a name-based
+  filter would have silenced streaming outright, with no error, the first time
+  anyone named their agent. Naming the root is now a no-op for streaming, pinned by
+  a test.
+- **Docs** — `sendReply` / `sendText` now document the shape of their `opts`
+  argument, which the README previously referenced without ever describing.
+
 ## 0.4.0 — 2026-07-19
 
 - **Turn-loop bridge / Formatting** — `rich: true` now means *rich when it buys
