@@ -11,10 +11,6 @@ type LangGraphEvent = {
   data?: { chunk?: { content?: unknown } };
 };
 
-// LangGraph joins one `<node>:<uuid>` segment per nesting level into
-// `checkpoint_ns` with this separator. See NESTED_NS below.
-const NS_SEPARATOR = '|';
-
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -64,7 +60,7 @@ export async function* streamAgent(
         // any `options.name`), so naming the root — a harmless-looking thing
         // to do for logs — would silently drop every token with no error.
         // Nesting depth has no such coupling to the caller's config.
-        if (ev.metadata?.checkpoint_ns?.includes(NS_SEPARATOR)) continue;
+        if (ev.metadata?.checkpoint_ns?.includes('|')) continue;
         const text = extractText(ev.data?.chunk?.content);
         if (text) yield { type: 'token', text };
       }

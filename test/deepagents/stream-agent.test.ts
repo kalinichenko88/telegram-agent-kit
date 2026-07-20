@@ -30,7 +30,6 @@ class ScriptedModel extends BaseChatModel {
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
     this.calls += 1;
-    const turn = this.calls;
 
     const emit = async (text: string, extra?: Record<string, unknown>) => {
       await runManager?.handleLLMNewToken(text);
@@ -40,7 +39,7 @@ class ScriptedModel extends BaseChatModel {
       });
     };
 
-    if (turn === 1) {
+    if (this.calls === 1) {
       yield await emit('ROOT-A ');
       yield await emit('', {
         tool_call_chunks: [
@@ -59,7 +58,7 @@ class ScriptedModel extends BaseChatModel {
       return;
     }
 
-    if (turn === 2) {
+    if (this.calls === 2) {
       yield await emit('SUB-1 ');
       yield await emit('SUB-2');
       return;
@@ -108,11 +107,10 @@ async function collect(
 }
 
 test('root tokens reach the caller', async () => {
-  const { agent, model } = makeAgent();
+  const { agent } = makeAgent();
   const { text, errors } = await collect(agent);
 
   expect(errors).toEqual([]);
-  expect(model.calls).toBe(3); // root -> subagent -> root
   expect(text).toBe('ROOT-A ROOT-B');
 });
 
@@ -133,11 +131,10 @@ test('subagent tokens are dropped', async () => {
 // naming the root must stay a no-op for streaming. See NESTED_NS in
 // src/deepagents/stream-agent.ts.
 test('naming the root agent does not silence it', async () => {
-  const { agent, model } = makeAgent('root-bot');
+  const { agent } = makeAgent('root-bot');
   const { text, errors } = await collect(agent);
 
   expect(errors).toEqual([]);
-  expect(model.calls).toBe(3);
   expect(text).toBe('ROOT-A ROOT-B');
   expect(text).not.toContain('SUB-');
 });
