@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0 — 2026-07-22
+
+- **Turn-loop bridge** — the live draft now shows which tool the agent is running.
+  A turn that stopped streaming to call a tool used to leave the draft frozen, which
+  from the chat is indistinguishable from the bot having hung. `RenderEvent` gains a
+  `tool_start` case, rendered as a transient `🔧 \`name\`…` line under the draft.
+  The status is held separately from the reply and **never** folded into it, so the
+  message that actually gets sent is still exactly the concatenated tokens; the next
+  token clears the line rather than stacking under it. A turn that *ends* on a tool
+  call rewrites the status-free text directly, because `finalize()` stops the draft
+  animation but leaves its last frame standing — without that, a tool-only turn
+  (tools ran, no tokens) would strand a 🔧 on screen with no message to explain it.
+  No new option or callback: the format is fixed until a second consumer disagrees.
+- **/deepagents** — `streamAgent` now maps `on_tool_start` onto the new event,
+  behind the same nested-agent filter the tokens use, so a delegated subagent's tool
+  calls stay out of the root draft. That the `checkpoint_ns` `|` separator
+  discriminates on tool starts too was verified against a real delegation rather
+  than assumed: a root tool start carries `tools:<uuid>`, one inside a subagent
+  carries `tools:<uuid>|tools:<uuid>`. The token branch's `langgraph_node ===
+  'model_request'` gate is deliberately *not* reused — tool starts run on the
+  `tools` node, so it would have dropped every tool call. The built-in `task` tool
+  surfaces as a normal root tool call, so delegation reads as the tool it is instead
+  of as a gap in the narration.
+
 ## 0.4.1 — 2026-07-20
 
 - **/deepagents** — `streamAgent` no longer leaks a nested agent's tokens into the
