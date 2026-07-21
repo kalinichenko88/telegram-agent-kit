@@ -4,17 +4,26 @@ import type { BaseMessage } from '@langchain/core/messages';
 import { AIMessageChunk } from '@langchain/core/messages';
 import type { ChatResult } from '@langchain/core/outputs';
 import { ChatGenerationChunk } from '@langchain/core/outputs';
+import { tool } from '@langchain/core/tools';
 import { createDeepAgent } from 'deepagents';
 import { expect, test } from 'vitest';
 
 import { streamAgent } from '../../src/deepagents/stream-agent.ts';
 
-/** Scripted model driving a real delegation: the root delegates via the
- *  built-in `task` tool on its first turn, the subagent answers, then the root
- *  writes the final reply. Call-ordered rather than tool-inspecting so the same
+/** One streamed chunk: prose, a tool call, or both. */
+type Step = { text?: string; call?: { name: string; args?: unknown } };
+
+/** Scripted model driving a real delegation — `script[n]` is what the model
+ *  streams on its nth call. Call-ordered rather than tool-inspecting so the same
  *  instance can back both levels (createAgent binds tools onto it twice). */
 class ScriptedModel extends BaseChatModel {
   calls = 0;
+  script: Step[][];
+
+  constructor(script: Step[][]) {
+    super({});
+    this.script = script;
+  }
 
   _llmType() {
     return 'scripted';
@@ -29,42 +38,32 @@ class ScriptedModel extends BaseChatModel {
     _options: this['ParsedCallOptions'],
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
+    const turn = this.script[this.calls] ?? [];
     this.calls += 1;
 
-    const emit = async (text: string, extra?: Record<string, unknown>) => {
+    for (const [i, step] of turn.entries()) {
+      const text = step.text ?? '';
       await runManager?.handleLLMNewToken(text);
-      return new ChatGenerationChunk({
+      yield new ChatGenerationChunk({
         text,
-        message: new AIMessageChunk({ content: text, ...(extra ?? {}) }),
+        message: new AIMessageChunk({
+          content: text,
+          ...(step.call
+            ? {
+                tool_call_chunks: [
+                  {
+                    name: step.call.name,
+                    args: JSON.stringify(step.call.args ?? {}),
+                    id: `call_${this.calls}_${i}`,
+                    index: i,
+                    type: 'tool_call_chunk' as const,
+                  },
+                ],
+              }
+            : {}),
+        }),
       });
-    };
-
-    if (this.calls === 1) {
-      yield await emit('ROOT-A ');
-      yield await emit('', {
-        tool_call_chunks: [
-          {
-            name: 'task',
-            args: JSON.stringify({
-              description: 'do the thing',
-              subagent_type: 'gp',
-            }),
-            id: 'call_1',
-            index: 0,
-            type: 'tool_call_chunk',
-          },
-        ],
-      });
-      return;
     }
-
-    if (this.calls === 2) {
-      yield await emit('SUB-1 ');
-      yield await emit('SUB-2');
-      return;
-    }
-
-    yield await emit('ROOT-B');
   }
 
   async _generate(): Promise<ChatResult> {
@@ -72,16 +71,49 @@ class ScriptedModel extends BaseChatModel {
   }
 }
 
-function makeAgent(name?: string) {
-  const model = new ScriptedModel({});
+const delegate = {
+  name: 'task',
+  args: { description: 'do the thing', subagent_type: 'gp' },
+};
+
+/** No tools: the root delegates, the subagent answers, the root answers. */
+const PROSE_SCRIPT: Step[][] = [
+  [{ text: 'ROOT-A ' }, { call: delegate }],
+  [{ text: 'SUB-1 ' }, { text: 'SUB-2' }],
+  [{ text: 'ROOT-B' }],
+];
+
+/** Tools at both levels: the root runs `root_tool`, then delegates; the
+ *  subagent runs `sub_tool` before either level writes prose. Distinct names so
+ *  a leaked subagent tool call cannot hide behind a root one. */
+const TOOL_SCRIPT: Step[][] = [
+  [{ call: { name: 'root_tool' } }],
+  [{ call: delegate }],
+  [{ call: { name: 'sub_tool' } }],
+  [{ text: 'SUB' }],
+  [{ text: 'ROOT' }],
+];
+
+const stubTool = (name: string) =>
+  tool(async () => 'ok', {
+    name,
+    description: name,
+    // JSON schema rather than zod — zod is only a transitive dep here.
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+  });
+
+function makeAgent(name?: string, script: Step[][] = PROSE_SCRIPT) {
+  const model = new ScriptedModel(script);
   const agent = createDeepAgent({
     model,
     ...(name ? { name } : {}),
+    tools: [stubTool('root_tool')],
     subagents: [
       {
         name: 'gp',
         description: 'general purpose',
         systemPrompt: 'you are a subagent',
+        tools: [stubTool('sub_tool')],
       },
     ],
   });
@@ -94,6 +126,7 @@ async function collect(
 ) {
   const out: string[] = [];
   const errors: string[] = [];
+  const tools: string[] = [];
   for await (const ev of streamAgent(
     agent,
     { messages: [{ role: 'user', content: 'hi' }] },
@@ -101,9 +134,10 @@ async function collect(
     signal,
   )) {
     if (ev.type === 'token') out.push(ev.text);
+    if (ev.type === 'tool_start') tools.push(ev.name);
     if (ev.type === 'error') errors.push(ev.message);
   }
-  return { text: out.join(''), errors };
+  return { text: out.join(''), errors, tools };
 }
 
 test('root tokens reach the caller', async () => {
@@ -137,6 +171,26 @@ test('naming the root agent does not silence it', async () => {
   expect(errors).toEqual([]);
   expect(text).toBe('ROOT-A ROOT-B');
   expect(text).not.toContain('SUB-');
+});
+
+test('root tool calls surface as tool_start, in order', async () => {
+  const { agent } = makeAgent(undefined, TOOL_SCRIPT);
+  const { tools, errors } = await collect(agent);
+
+  // `task` is itself a root tool call — delegation is visible to the user as
+  // the tool it actually is, rather than as a gap in the narration.
+  expect(errors).toEqual([]);
+  expect(tools).toEqual(['root_tool', 'task']);
+});
+
+test('a subagent tool call is dropped', async () => {
+  const { agent, model } = makeAgent(undefined, TOOL_SCRIPT);
+  const { tools, text } = await collect(agent);
+
+  // The subagent really did run its tool — it just never reached the user.
+  expect(model.calls).toBe(5);
+  expect(tools).not.toContain('sub_tool');
+  expect(text).toBe('ROOT');
 });
 
 test('abort yields a single canceled error event', async () => {

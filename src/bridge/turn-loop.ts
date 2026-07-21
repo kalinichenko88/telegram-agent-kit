@@ -97,8 +97,11 @@ export async function runTelegramTurn(
     });
     draft.start();
 
-    // 6. stream.
+    // 6. stream. `status` is draft-only scaffolding — it is composed onto the
+    //    pushed frame but never onto `reply`, so tool narration can animate
+    //    live without ever reaching the persisted message.
     let reply = '';
+    let status = '';
     let errorMessage: string | undefined;
     for await (const ev of opts.agentStream(
       { messages: [{ role: 'user', content: opts.userText }] },
@@ -106,7 +109,11 @@ export async function runTelegramTurn(
     )) {
       if (ev.type === 'token') {
         reply += ev.text;
+        status = ''; // the answer resumed — drop the tool line, don't stack under it
         draft.push(reply);
+      } else if (ev.type === 'tool_start') {
+        status = `🔧 \`${ev.name}\`…`;
+        draft.push(reply ? `${reply}\n\n${status}` : status);
       } else if (ev.type === 'error') errorMessage = ev.message;
     }
 
@@ -146,6 +153,22 @@ export async function runTelegramTurn(
     // 8. finalize + commit + send.
     draftTornDown = true;
     await draft.finalize().catch(() => {});
+    // A turn that ends on a tool call leaves the 🔧 frame standing: finalize()
+    // stops the animation, it does not blank what it last wrote. Rewrite the
+    // status-free text once, directly — the streamer is stopped by now, and its
+    // throttle gate would swallow a push this late anyway. Empty `reply` sends
+    // empty text, which clears the draft outright; that matters most in the
+    // tool-only case below, where no message follows to explain the 🔧.
+    if (status) {
+      await opts.client
+        .sendMessageDraft(
+          { chatId: opts.chatKey.chatId, draftId: opts.draftId, text: reply },
+          opts.signal,
+        )
+        .catch((e: unknown) =>
+          log.warn('telegram draft status clear failed', { err: String(e) }),
+        );
+    }
     turnCompleted = true;
     if (reply.trim().length > 0) {
       await sendReply(
