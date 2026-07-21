@@ -37,6 +37,9 @@ export type BotClient = {
 
 export type RenderEvent =
   | { type: 'token'; text: string }
+  /** The agent started a tool call. Surfaced in the live draft as a transient
+   *  status line and NEVER folded into the reply — see runTelegramTurn. */
+  | { type: 'tool_start'; name: string }
   | { type: 'error'; message: string };
 
 export type StreamInput = { messages: { role: 'user'; content: string }[] };

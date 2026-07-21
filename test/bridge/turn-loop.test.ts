@@ -149,6 +149,96 @@ test('a throwing afterTurn hook is swallowed (never throws out)', async () => {
   await expect(runTelegramTurn(d)).resolves.toBeUndefined();
 });
 
+/** Every draft frame the turn actually pushed to Telegram, in order, across
+ *  both the plain and rich draft transports. Tests that inspect frames run with
+ *  `throttleMs: 0` so each push flushes instead of being coalesced by the gate. */
+function draftFrames(client: BotClient): string[] {
+  const calls = [
+    ...(client.sendMessageDraft as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => [c[0].text, c] as const,
+    ),
+    ...(client.sendRichMessageDraft as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => [c[0].markdown, c] as const,
+    ),
+  ];
+  return calls.map(([text]) => text as string);
+}
+
+/** Lets the draft streamer's in-flight promise settle between stream events, so
+ *  a push is never dropped merely because the previous write is still pending. */
+const settle = () => new Promise((r) => setTimeout(r, 1));
+
+test('tool_start status never leaks into the sent reply', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'one ' };
+    yield { type: 'tool_start', name: 'web_search' };
+    yield { type: 'token', text: 'two' };
+  };
+  const d = deps({ agentStream: stream });
+  await runTelegramTurn(d);
+
+  // The whole point: the persisted message is exactly the tokens.
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'one two' }),
+    undefined,
+  );
+  expect(d.client.sendRichMessage).not.toHaveBeenCalled();
+});
+
+test('a token after a tool_start clears the status from the draft', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'one ' };
+    await settle();
+    yield { type: 'tool_start', name: 'web_search' };
+    await settle();
+    yield { type: 'token', text: 'two' };
+    await settle();
+  };
+  const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
+  await runTelegramTurn(d);
+
+  const frames = draftFrames(d.client);
+  // The status was visible mid-turn...
+  expect(frames.some((f) => f.includes('🔧') && f.includes('web_search'))).toBe(
+    true,
+  );
+  // ...and the next token replaced it rather than stacking under it.
+  expect(frames.at(-1)).toBe('one two');
+});
+
+test('a turn ending on a tool_start does not leave 🔧 as the last draft frame', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'thinking ' };
+    await settle();
+    yield { type: 'tool_start', name: 'web_search' };
+    await settle();
+  };
+  const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
+  await runTelegramTurn(d);
+
+  expect(draftFrames(d.client).at(-1)).toBe('thinking ');
+});
+
+test('a tool-only turn clears the draft, warns, and sends nothing', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'web_search' };
+    await settle();
+  };
+  const warn = vi.fn();
+  const d = deps({
+    agentStream: stream,
+    draftConstants: { throttleMs: 0 },
+    log: { warn, error: () => {} },
+  });
+  await runTelegramTurn(d);
+
+  expect(warn).toHaveBeenCalledWith('telegram empty reply', { chatId: 1 });
+  expect(d.client.sendMessage).not.toHaveBeenCalled();
+  expect(d.client.sendRichMessage).not.toHaveBeenCalled();
+  // Nothing is sent, so an uncleared 🔧 would stand on screen unexplained.
+  expect(draftFrames(d.client).at(-1)).toBe('');
+});
+
 test('opts.configurable is forwarded to agentStream context', async () => {
   let capturedConfigurable: Record<string, unknown> | undefined;
   const stream: AgentStream = async function* (_input, ctx) {

@@ -7,9 +7,16 @@ type Agent = ReturnType<typeof createDeepAgent>;
 
 type LangGraphEvent = {
   event: string;
+  name?: string;
   metadata?: { langgraph_node?: string; checkpoint_ns?: string };
   data?: { chunk?: { content?: unknown } };
 };
+
+/** True for an event replayed from a delegated agent (a `subagents` entry or the
+ *  built-in `task` tool) rather than produced by the root run. See NESTED_NS. */
+function isNested(ev: LangGraphEvent): boolean {
+  return ev.metadata?.checkpoint_ns?.includes('|') ?? false;
+}
 
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -60,9 +67,21 @@ export async function* streamAgent(
         // any `options.name`), so naming the root — a harmless-looking thing
         // to do for logs — would silently drop every token with no error.
         // Nesting depth has no such coupling to the caller's config.
-        if (ev.metadata?.checkpoint_ns?.includes('|')) continue;
+        if (isNested(ev)) continue;
         const text = extractText(ev.data?.chunk?.content);
         if (text) yield { type: 'token', text };
+      } else if (ev.event === 'on_tool_start') {
+        // Same nesting test as the tokens above, and verified to discriminate
+        // on THIS event too rather than assumed: a root tool start carries
+        // `checkpoint_ns: 'tools:<uuid>'`, while a tool called inside a
+        // delegated subagent carries `'tools:<uuid>|tools:<uuid>'` — the `|`
+        // separator is per nesting level regardless of event type.
+        //
+        // No `langgraph_node` gate here, unlike the token branch: tool starts
+        // run on the `tools` node, not `model_request`, so reusing that check
+        // would drop every tool call. Nesting alone is the filter.
+        if (isNested(ev)) continue;
+        yield { type: 'tool_start', name: ev.name ?? 'unknown' };
       }
     }
   } catch (err) {
