@@ -14,11 +14,10 @@ export function chunkText(text: string): string[] {
     let cut = rest.lastIndexOf('\n\n', CHUNK_TARGET);
     if (cut < 1) cut = rest.lastIndexOf('\n', CHUNK_TARGET);
     if (cut < 1) cut = CHUNK_TARGET;
-    // never split between a high and low surrogate
-    const code = rest.charCodeAt(cut - 1);
-    if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut);
+    // safeSlice owns the "never split a surrogate pair" rule for every splitter.
+    const piece = safeSlice(rest, cut);
+    chunks.push(piece);
+    rest = rest.slice(piece.length);
   }
   if (rest.length > 0) chunks.push(rest);
 

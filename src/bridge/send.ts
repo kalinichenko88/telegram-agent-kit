@@ -1,13 +1,12 @@
 import { isBadRequest } from '../errors.ts';
+import { chunkRich, chunkText } from '../format/chunk.ts';
+import { mdToTelegramHtml } from '../format/md-to-html.ts';
 import {
-  chunkRich,
-  chunkText,
   extractTrailingCover,
-  mdToTelegramHtml,
   needsRich,
   neutralizeRichMedia,
   repairRichTables,
-} from '../format/index.ts';
+} from '../format/rich.ts';
 import type { BotClient, Logger } from './interfaces.ts';
 
 const CAPTION_LIMIT = 1024;

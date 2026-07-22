@@ -16,21 +16,21 @@ Connecting an LLM agent to a Telegram bot looks simple until you hit the edges:
 
 - LLMs emit arbitrary Markdown — Telegram speaks a small, strict HTML subset. A
   single unclosed tag makes the Bot API reject the whole message.
-- Token streaming into a *live draft* means you render **partial** Markdown many
-  times a second, where marks and fences are routinely mid-token.
+- Token streaming into a *live draft* means pushing text many times a second,
+  where marks and fences are routinely mid-token.
 - A failed turn must roll back cleanly so the conversation thread isn't corrupted.
 
-`telegram-agent-kit` solves these once. Notably, it's the only JS package that
-renders Markdown to **Telegram-HTML** with **totality** (never throws on arbitrary
-LLM output) *and* a **streaming/partial** mode (auto-closes unclosed marks and
-fences, so a live draft never flashes broken markup).
+`telegram-agent-kit` solves these once. Notably, it renders Markdown to
+**Telegram-HTML** with **totality** — it never throws on arbitrary LLM output,
+and an unclosed mark or fence is emitted literally rather than mangled, so a
+mid-stream chunk can only ever under-format.
 
 It is **runtime-agnostic**: you supply all I/O through small injected interfaces,
 and the kit owns the orchestration. No HTTP client, no framework, no globals.
 
 ## Features
 
-- **Markdown → Telegram-HTML** that never throws, with a `partial` mode for live drafts.
+- **Markdown → Telegram-HTML** that never throws on any LLM output.
 - **Live draft streaming** — a throttle / keepalive / typing-heartbeat / drain state
   machine that animates one native Telegram draft from a growing string.
 - **Turn-loop orchestration** — `snapshot → stream → animate → finalize → reply`,
@@ -170,8 +170,8 @@ message. An `error` rolls the turn back, logs the message, and — if you pass
 
 **Formatting** (pure, zero deps)
 
-- `mdToTelegramHtml(md, opts?)` — Markdown → Telegram-HTML. Never throws. `opts.partial`
-  auto-closes unclosed marks/fences for live drafts.
+- `mdToTelegramHtml(md)` — Markdown → Telegram-HTML. Never throws; an unclosed
+  mark or fence stays literal rather than being auto-closed.
 - `chunkText(text)` / `safeSlice(text, max)` / `chunkRich(md)` — surrogate-safe splitting
   (classic limit 4096, rich limit 32768).
 - `repairRichTables(md)` · `neutralizeRichMedia(md)` · `extractTrailingCover(reply)` — rich helpers.

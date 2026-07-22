@@ -1,10 +1,21 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { DEFAULT_DRAFT_CONSTANTS } from '../../src/draft/constants.ts';
-import { createDraftStreamer } from '../../src/draft/index.ts';
+import { createDraftStreamer } from '../../src/draft/draft-streamer.ts';
 import { TelegramApiError } from '../../src/errors.ts';
 
 const DRAFT_MAX_FAILURES = DEFAULT_DRAFT_CONSTANTS.maxFailures;
+const TICK_MS = DEFAULT_DRAFT_CONSTANTS.tickMs;
+
+// The streamer calls Date.now / setInterval / setTimeout directly; vitest's
+// fake timers drive all three, so the tests need no injected clock seams.
+beforeEach(() => {
+  vi.useFakeTimers({ now: 0 });
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 type Deferred = {
   promise: Promise<void>;
@@ -31,15 +42,10 @@ const noopLog = {
   },
 } as never;
 
-function setup(opts: { cancelThrows?: boolean; rich?: boolean } = {}) {
-  let clock = 0;
-  let tickFn: (() => void) | null = null;
-  const cancelInterval = { called: false };
-  const drainCancel = { called: false };
+function setup(opts: { rich?: boolean } = {}) {
   const drafts: Array<{ method: 'rich' | 'plain'; text: string }> = [];
   const typing: number[] = [];
   let lastDraft: Deferred | null = null;
-  let drain: Deferred | null = null;
 
   const record =
     (method: 'rich' | 'plain') =>
@@ -67,24 +73,6 @@ function setup(opts: { cancelThrows?: boolean; rich?: boolean } = {}) {
         typing.push(p.chatId);
       },
     } as never,
-    now: () => clock,
-    schedule: (fn: () => void) => {
-      tickFn = fn;
-      return 1 as never;
-    },
-    cancel: () => {
-      if (opts.cancelThrows) throw new Error('cancel blew up');
-      cancelInterval.called = true;
-    },
-    delay: () => {
-      drain = deferred();
-      return {
-        promise: drain.promise,
-        cancel: () => {
-          drainCancel.called = true;
-        },
-      };
-    },
   });
 
   streamer.start();
@@ -92,16 +80,19 @@ function setup(opts: { cancelThrows?: boolean; rich?: boolean } = {}) {
     streamer,
     drafts,
     typing,
-    cancelInterval,
-    drainCancel,
+    /** Move the clock WITHOUT firing the ticker — isolates the throttle /
+     *  keepalive gates from the interval that drives them. */
     advance: (ms: number) => {
-      clock += ms;
+      vi.setSystemTime(Date.now() + ms);
     },
-    tick: () => tickFn?.(),
+    /** Fire the ticker once. */
+    tick: () => {
+      vi.advanceTimersByTime(TICK_MS);
+    },
     resolveDraft: () => lastDraft?.resolve(),
     rejectDraft: (e?: unknown) => lastDraft?.reject(e ?? new Error('fail')),
-    resolveDrain: () => drain?.resolve(),
-    settle: () => new Promise<void>((r) => setTimeout(r, 0)),
+    /** Flush the pending send's .then/.catch/.finally microtask chain. */
+    settle: () => vi.advanceTimersByTimeAsync(0),
   };
 }
 
@@ -204,13 +195,14 @@ describe('DraftStreamer', () => {
     expect(s.typing).toEqual([111, 111]);
   });
 
-  test('finalize drains a fast write and cancels the drain timer', async () => {
+  test('finalize drains a fast write and leaves no timer behind', async () => {
     const s = setup();
     s.streamer.push('a'); // inFlight pending
     s.resolveDraft(); // write resolves
     await s.streamer.finalize();
-    expect(s.drainCancel.called).toBe(true);
-    expect(s.cancelInterval.called).toBe(true);
+    // Both the ticker and the drain timeout must be cleared — a surviving
+    // timer keeps the process alive after the turn ends.
+    expect(vi.getTimerCount()).toBe(0);
     expect(s.drafts.length).toBe(1); // no clear send
   });
 
@@ -218,16 +210,17 @@ describe('DraftStreamer', () => {
     const s = setup();
     s.streamer.push('a'); // inFlight pending, never resolved
     const p = s.streamer.finalize();
-    s.resolveDrain(); // budget elapses first → abort + proceed
+    // Let the real drain timeout elapse → abort the write and proceed.
+    await vi.advanceTimersByTimeAsync(DEFAULT_DRAFT_CONSTANTS.drainMs);
     await p;
-    expect(s.drainCancel.called).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   test('abort cancels locally, sends no clear, and goes silent', async () => {
     const s = setup();
     s.streamer.push('a'); // inFlight pending
     await s.streamer.abort();
-    expect(s.cancelInterval.called).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
     expect(s.drafts.length).toBe(1); // no empty-text clear
     s.advance(1000);
     s.streamer.push('b');
@@ -246,7 +239,10 @@ describe('DraftStreamer', () => {
   });
 
   test('finalize and abort never reject even if teardown throws', async () => {
-    const s = setup({ cancelThrows: true });
+    const s = setup();
+    vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {
+      throw new Error('cancel blew up');
+    });
     await expect(s.streamer.finalize()).resolves.toBeUndefined();
     await expect(s.streamer.abort()).resolves.toBeUndefined();
   });

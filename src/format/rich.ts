@@ -2,8 +2,6 @@
  *  leading/trailing pipe optional). */
 const TABLE_DELIM_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
-const isPipeLine = (line: string): boolean => line.includes('|');
-
 /** A fully-fenced table row — trimmed line both opens and closes with `|`. Used
  *  to spot orphaned rows without swallowing prose that merely mentions a pipe. */
 const isTableRowLine = (line: string): boolean => /^\s*\|.*\|\s*$/.test(line);
@@ -13,7 +11,7 @@ const isTableRowLine = (line: string): boolean => /^\s*\|.*\|\s*$/.test(line);
 function isTableBlock(lines: string[]): boolean {
   return (
     lines.length >= 2 &&
-    isPipeLine(lines[0] ?? '') &&
+    (lines[0] ?? '').includes('|') &&
     TABLE_DELIM_RE.test(lines[1] ?? '')
   );
 }
@@ -235,16 +233,6 @@ export function needsRich(md: string): boolean {
  *  URL does not match. `[^)]*` swallows an optional "title" after the URL. */
 const TRAILING_COVER_RE = /^!\[[^\]]*\]\(\s*(https?:\/\/[^\s)]+)[^)]*\)$/;
 
-/** True if line `idx` sits inside an open code region — a fenced ``` / ~~~ block
- *  OR an HTML <pre>/<code> region — given the lines before it. A trailing image
- *  line inside code is a literal example, not a cover. Delegates to
- *  advanceCodeRegion so it shares neutralizeRichMedia's exact code-region rules
- *  (run-length-aware fence close, lazy HTML regions) rather than re-deriving a
- *  weaker fence scan. */
-function insideCodeRegion(lines: string[], idx: number): boolean {
-  return advanceCodeRegion(null, lines.slice(0, idx)) !== null;
-}
-
 /** Extract a standalone cover image that is the LAST non-empty line of `md`:
  *  the whole line is a single `![alt](http(s)://…)` token. Returns the URL plus
  *  the body (the reply with that line removed, trailing whitespace trimmed).
@@ -267,7 +255,11 @@ export function extractTrailingCover(
   if (i < 0) return null;
   const m = TRAILING_COVER_RE.exec((lines[i] ?? '').trim());
   if (m === null) return null;
-  if (insideCodeRegion(lines, i)) return null;
+  // A trailing image line inside an open code region — a fenced ``` / ~~~ block
+  // or an HTML <pre>/<code> region — is a literal example, not a cover. Reuses
+  // advanceCodeRegion so this shares neutralizeRichMedia's exact code-region
+  // rules (run-length-aware fence close, lazy HTML regions).
+  if (advanceCodeRegion(null, lines.slice(0, i)) !== null) return null;
   const url = m[1] ?? '';
   const body = lines.slice(0, i).join('\n').replace(/\s+$/, '');
 
