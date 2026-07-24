@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 — 2026-07-24
+
+- **Turn-loop bridge** — a skill load now reads as `🧠 load_skill(\`name\`)…` in the
+  live draft instead of the generic `🔧 \`read_file\`…`. Skills load via progressive
+  disclosure: there is no dedicated tool — the model just reads
+  `/skills/<name>/SKILL.md` with `read_file`, which made a skill load
+  indistinguishable from reading any other file. The new `skillName` helper spots
+  that specific read (a `read_file` whose `file_path` ends `/skills/<name>/SKILL.md`)
+  and relabels only the transient status line; a plain `read_file` still shows 🔧, and
+  the status is still never folded into the sent message.
+- **Turn-loop bridge / /deepagents** — `RenderEvent`'s `tool_start` now carries an
+  `args` field so the tool input reaches the draft (the file path is what the relabel
+  keys off). The `/deepagents` adapter forwards it from the LangGraph event's
+  `data.input`.
+
 ## 0.5.0 — 2026-07-22
 
 - **Turn-loop bridge** — the live draft now shows which tool the agent is running.
