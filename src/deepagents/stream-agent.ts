@@ -9,7 +9,7 @@ type LangGraphEvent = {
   event: string;
   name?: string;
   metadata?: { langgraph_node?: string; checkpoint_ns?: string };
-  data?: { chunk?: { content?: unknown } };
+  data?: { chunk?: { content?: unknown }; input?: unknown };
 };
 
 /** True for an event replayed from a delegated agent (a `subagents` entry or the
@@ -81,7 +81,11 @@ export async function* streamAgent(
         // run on the `tools` node, not `model_request`, so reusing that check
         // would drop every tool call. Nesting alone is the filter.
         if (isNested(ev)) continue;
-        yield { type: 'tool_start', name: ev.name ?? 'unknown' };
+        yield {
+          type: 'tool_start',
+          name: ev.name ?? 'unknown',
+          args: ev.data?.input,
+        };
       }
     }
   } catch (err) {

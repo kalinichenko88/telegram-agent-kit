@@ -171,7 +171,7 @@ const settle = () => new Promise((r) => setTimeout(r, 1));
 test('tool_start status never leaks into the sent reply', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'one ' };
-    yield { type: 'tool_start', name: 'web_search' };
+    yield { type: 'tool_start', name: 'web_search', args: {} };
     yield { type: 'token', text: 'two' };
   };
   const d = deps({ agentStream: stream });
@@ -189,7 +189,7 @@ test('a token after a tool_start clears the status from the draft', async () => 
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'one ' };
     await settle();
-    yield { type: 'tool_start', name: 'web_search' };
+    yield { type: 'tool_start', name: 'web_search', args: {} };
     await settle();
     yield { type: 'token', text: 'two' };
     await settle();
@@ -210,7 +210,7 @@ test('a turn ending on a tool_start does not leave 🔧 as the last draft frame'
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'thinking ' };
     await settle();
-    yield { type: 'tool_start', name: 'web_search' };
+    yield { type: 'tool_start', name: 'web_search', args: {} };
     await settle();
   };
   const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
@@ -219,9 +219,48 @@ test('a turn ending on a tool_start does not leave 🔧 as the last draft frame'
   expect(draftFrames(d.client).at(-1)).toBe('thinking ');
 });
 
+test('a skill load (read_file on SKILL.md) relabels the draft status', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'sec ' };
+    await settle();
+    yield {
+      type: 'tool_start',
+      name: 'read_file',
+      args: { file_path: '/skills/food-logging/SKILL.md' },
+    };
+    await settle();
+  };
+  const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
+  await runTelegramTurn(d);
+
+  const frames = draftFrames(d.client);
+  expect(frames.some((f) => f.includes('🧠 load_skill(`food-logging`)…'))).toBe(
+    true,
+  );
+  // The generic 🔧 label never appears for a skill read.
+  expect(frames.some((f) => f.includes('🔧'))).toBe(false);
+});
+
+test('a plain read_file keeps the generic 🔧 status', async () => {
+  const stream: AgentStream = async function* () {
+    yield {
+      type: 'tool_start',
+      name: 'read_file',
+      args: { file_path: '/notes/todo.md' },
+    };
+    await settle();
+  };
+  const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
+  await runTelegramTurn(d);
+
+  const frames = draftFrames(d.client);
+  expect(frames.some((f) => f.includes('🔧 `read_file`…'))).toBe(true);
+  expect(frames.some((f) => f.includes('🧠'))).toBe(false);
+});
+
 test('a tool-only turn clears the draft, warns, and sends nothing', async () => {
   const stream: AgentStream = async function* () {
-    yield { type: 'tool_start', name: 'web_search' };
+    yield { type: 'tool_start', name: 'web_search', args: {} };
     await settle();
   };
   const warn = vi.fn();

@@ -38,8 +38,10 @@ export type BotClient = {
 export type RenderEvent =
   | { type: 'token'; text: string }
   /** The agent started a tool call. Surfaced in the live draft as a transient
-   *  status line and NEVER folded into the reply — see runTelegramTurn. */
-  | { type: 'tool_start'; name: string }
+   *  status line and NEVER folded into the reply — see runTelegramTurn. `args`
+   *  carries the tool input so the draft can relabel specific calls (e.g. a
+   *  skill load, which rides on `read_file` — see skillName in turn-loop.ts). */
+  | { type: 'tool_start'; name: string; args: unknown }
   | { type: 'error'; message: string };
 
 export type StreamInput = { messages: { role: 'user'; content: string }[] };
