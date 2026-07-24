@@ -45,6 +45,17 @@ export type RunTelegramTurnOpts = {
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
 
+/** Skills load via progressive disclosure — the model reads
+ *  `/skills/<name>/SKILL.md` with `read_file` (no dedicated tool). */
+export function skillName(name: string, args: unknown): string | null {
+  if (name !== 'read_file') return null;
+  return (
+    (args as { file_path?: string } | undefined)?.file_path?.match(
+      /\/skills\/([^/]+)\/SKILL\.md$/,
+    )?.[1] ?? null
+  );
+}
+
 export async function runTelegramTurn(
   opts: RunTelegramTurnOpts,
 ): Promise<void> {
@@ -112,7 +123,11 @@ export async function runTelegramTurn(
         status = ''; // the answer resumed — drop the tool line, don't stack under it
         draft.push(reply);
       } else if (ev.type === 'tool_start') {
-        status = `🔧 \`${ev.name}\`…`;
+        const skill = skillName(ev.name, ev.args);
+        status =
+          skill !== null
+            ? `🧠 load_skill(\`${skill}\`)…`
+            : `🔧 \`${ev.name}\`…`;
         draft.push(reply ? `${reply}\n\n${status}` : status);
       } else if (ev.type === 'error') errorMessage = ev.message;
     }

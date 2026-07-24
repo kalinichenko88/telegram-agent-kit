@@ -161,7 +161,9 @@ A `RenderEvent` is one of `token`, `tool_start` or `error`. `token` text is appe
 the live draft *and* to the reply that gets sent. `tool_start` shows a transient
 `🔧 \`name\`…` line under the draft so the user sees which tool is running instead of a
 frozen draft — it is cleared by the next token and **never** becomes part of the sent
-message. An `error` rolls the turn back, logs the message, and — if you pass
+message. A skill load (a `read_file` on `/skills/<name>/SKILL.md`, how deepagents load
+skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` instead. An
+`error` rolls the turn back, logs the message, and — if you pass
 `errorNotice` — tells the user in the chat instead of going silent.
 
 ## API reference

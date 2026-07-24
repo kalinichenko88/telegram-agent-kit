@@ -127,6 +127,7 @@ async function collect(
   const out: string[] = [];
   const errors: string[] = [];
   const tools: string[] = [];
+  const toolCalls: { name: string; args: unknown }[] = [];
   for await (const ev of streamAgent(
     agent,
     { messages: [{ role: 'user', content: 'hi' }] },
@@ -134,10 +135,13 @@ async function collect(
     signal,
   )) {
     if (ev.type === 'token') out.push(ev.text);
-    if (ev.type === 'tool_start') tools.push(ev.name);
+    if (ev.type === 'tool_start') {
+      tools.push(ev.name);
+      toolCalls.push({ name: ev.name, args: ev.args });
+    }
     if (ev.type === 'error') errors.push(ev.message);
   }
-  return { text: out.join(''), errors, tools };
+  return { text: out.join(''), errors, tools, toolCalls };
 }
 
 test('root tokens reach the caller', async () => {
@@ -191,6 +195,19 @@ test('a subagent tool call is dropped', async () => {
   expect(model.calls).toBe(5);
   expect(tools).not.toContain('sub_tool');
   expect(text).toBe('ROOT');
+});
+
+test('tool_start forwards the tool input as args (ev.data.input)', async () => {
+  const { agent } = makeAgent(undefined, TOOL_SCRIPT);
+  const { toolCalls } = await collect(agent);
+
+  // Proves the plumbing: `ev.data.input` reaches `ev.args` at all (before the
+  // fix it was dropped) AND carries the actual call payload — the delegate's
+  // args survive the trip. The exact object shape is langchain's, not ours;
+  // the real `{ file_path }` shape skillName consumes is pinned in turn-loop.
+  const task = toolCalls.find((c) => c.name === 'task');
+  expect(task?.args).toBeDefined();
+  expect(JSON.stringify(task?.args)).toContain('do the thing');
 });
 
 test('abort yields a single canceled error event', async () => {
