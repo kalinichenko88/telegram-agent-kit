@@ -117,10 +117,27 @@ test('non-400 error propagates (no double-send)', async () => {
 // `400 text must be non-empty` out of the job's send instead of skipping.
 test('an invisible-only reply sends nothing at all', async () => {
   const c = fakeClient();
-  await sendReply(c, 1, '​​', { rich: true, log: noopLog });
+  // Escaped, not literal: raw invisibles in source survive nothing — one
+  // formatter pass or copy-paste and this becomes `''`, still green, proving
+  // nothing about `\p{Cf}`.
+  await sendReply(c, 1, '\u200B\u200B', { rich: true, log: noopLog });
   expect(c.sendMessage).not.toHaveBeenCalled();
   expect(c.sendRichMessage).not.toHaveBeenCalled();
   expect(c.sendPhoto).not.toHaveBeenCalled();
+});
+
+// The invisibles that are NOT `\p{Cf}` — a variation selector is `Mn`, a Hangul
+// filler is `Lo` — which is why the predicate tests `Default_Ignorable_Code_Point`
+// instead. Each of these alone still 400s on the Bot API.
+test.each([
+  ['variation selector', '\uFE0F'],
+  ['hangul filler', '\u3164'],
+  ['mixed with whitespace', ' \u200B\uFE0F\n'],
+])('a reply of only a %s sends nothing either', async (_label, blank) => {
+  const c = fakeClient();
+  await sendReply(c, 1, blank, { rich: true, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  expect(c.sendRichMessage).not.toHaveBeenCalled();
 });
 
 test('whitespace-only likewise, and a real reply still goes out', async () => {
@@ -143,8 +160,9 @@ test('a cover-image-only reply is NOT blocked by the blank guard', async () => {
 });
 
 test('an emoji-only reply is real content, not blank', async () => {
-  // \p{Cf} covers the ZWJ inside 👨‍👩‍👧 — stripping it for the test must not
-  // make a legitimate emoji reply look empty.
+  // The ignorable class covers both the ZWJ inside 👨‍👩‍👧 and the variation
+  // selectors that pick emoji presentation — stripping them for the test must
+  // not make a legitimate emoji reply look empty.
   const c = fakeClient();
   await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
   expect(c.sendMessage).toHaveBeenCalledTimes(1);

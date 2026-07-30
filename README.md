@@ -169,9 +169,11 @@ skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` 
 A turn can also *complete* with nothing to say: it ended on a tool call, or the model
 answered with invisible characters only (a bare U+200B counts as text for `trim()` but is
 empty to the Bot API). Both are treated as an empty reply — logged, and — if you pass
-`emptyNotice` — said out loud. The same check guards `sendText` itself, so a *direct*
-caller (a background job handing model output to `sendReply`) skips the send instead of
-throwing a Bot API 400. That notice is a **separate** line from
+`emptyNotice` — said out loud. A turn that ended on a tool call also gets its draft
+cleared, so no orphaned `🔧` line is left standing; an invisible-only reply leaves the
+draft as it was. The same check guards `sendText` itself, so a *direct* caller (a
+background job handing model output to `sendReply`) skips the send — with a
+`telegram blank send skipped` warning — instead of throwing a Bot API 400. That notice is a **separate** line from
 `errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
 stands, and "it broke" would invite a re-send that repeats the write.
 
