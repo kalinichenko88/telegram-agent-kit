@@ -166,6 +166,13 @@ skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` 
 `error` rolls the turn back, logs the message, and — if you pass
 `errorNotice` — tells the user in the chat instead of going silent.
 
+A turn can also *complete* with nothing to say: it ended on a tool call, or the model
+answered with invisible characters only (a bare U+200B counts as text for `trim()` but is
+empty to the Bot API). Both are treated as an empty reply — logged, the draft cleared, and
+— if you pass `emptyNotice` — said out loud. That notice is a **separate** line from
+`errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
+stands, and "it broke" would invite a re-send that repeats the write.
+
 ## API reference
 
 ### Core entry — `telegram-agent-kit`
@@ -192,7 +199,8 @@ skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` 
   Accepts an optional `configurable` bag forwarded to your `AgentStream` as `context.configurable`,
   for passing per-turn data (e.g. `pendingImages`) to the agent without widening the core input type.
   Pass `errorNotice` (plain text, your language) to have a failed turn say so in the chat —
-  omit it and the user just sees the draft stop, which reads as being ignored.
+  omit it and the user just sees the draft stop, which reads as being ignored. Pass
+  `emptyNotice` for the same reason on a turn that completed with no reply text.
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
   `opts` is `{ rich: boolean, log: Logger }`, with the same `rich` semantics as above.
 - Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`.

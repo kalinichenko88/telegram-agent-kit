@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0 — 2026-07-30
+
+- **Turn-loop bridge** — a reply made of nothing but invisible characters no longer
+  escapes the turn as an unhandled send failure. `String.trim` does not strip
+  `\p{Cf}` (U+200B zero-width space, U+FEFF, U+2060, soft hyphen …), so the
+  empty-reply guard passed a bare U+200B straight into `sendReply`, where the Bot
+  API answered `400 text must be non-empty` — on the HTML send and again on the
+  plain-text retry, whose throw left `runTelegramTurn`'s send step entirely.
+  Observed in prod 2026-07-30: a local fallback model closed a food-logging turn
+  with one U+200B; the diary row was written, the user got silence, and the only
+  trace was a `telegram turn failed` line. The blank check now ignores format
+  characters (predicate only — `\p{Cf}` also covers the ZWJ inside emoji
+  sequences, and the sent text is never rewritten), and such a turn also clears
+  its draft: a U+200B token resets the tool status, so the old `if (status)`
+  branch left the `🔧` frame standing.
+- **Turn-loop bridge** — new opt-in `emptyNotice`, the completed-turn sibling of
+  `errorNotice`: a plain-text line sent when a turn finishes with no reply text
+  (ended on a tool call, or answered invisibly). Kept separate from `errorNotice`
+  because an empty turn is **not** rolled back — its tool writes stand, and
+  error-shaped wording invites a re-send that repeats them. Omitted → the previous
+  warn-only behaviour, unchanged.
+
 ## 0.6.0 — 2026-07-24
 
 - **Turn-loop bridge** — a skill load now reads as `🧠 load_skill(\`name\`)…` in the
