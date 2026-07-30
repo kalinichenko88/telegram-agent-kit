@@ -110,3 +110,58 @@ test('non-400 error propagates (no double-send)', async () => {
   ).rejects.toThrow('network');
   expect(c.sendMessage).not.toHaveBeenCalled();
 });
+
+// 2026-07-30 review: the blank guard belonged in the funnel that throws, not
+// only in the turn loop — background callers (an app's digest / nudge jobs) hand
+// model output straight to sendReply, so a chain that goes mute end to end threw
+// `400 text must be non-empty` out of the job's send instead of skipping.
+test('an invisible-only reply sends nothing at all', async () => {
+  const c = fakeClient();
+  // Escaped — a raw U+200B here silently becomes `''` under any reformat, and
+  // stays green while proving nothing.
+  await sendReply(c, 1, '\u200B\u200B', { rich: true, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  expect(c.sendRichMessage).not.toHaveBeenCalled();
+  expect(c.sendPhoto).not.toHaveBeenCalled();
+});
+
+// The invisibles that are NOT `\p{Cf}` — a variation selector is `Mn`, a Hangul
+// filler is `Lo` — which is why the predicate tests `Default_Ignorable_Code_Point`
+// instead. Each of these alone still 400s on the Bot API.
+test.each([
+  ['variation selector', '\uFE0F'],
+  ['hangul filler', '\u3164'],
+])('a reply of only a %s sends nothing either', async (_label, blank) => {
+  const c = fakeClient();
+  await sendReply(c, 1, blank, { rich: true, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  expect(c.sendRichMessage).not.toHaveBeenCalled();
+});
+
+test('whitespace-only likewise, and a real reply still goes out', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, '   \n\t ', { rich: false, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  await sendReply(c, 1, 'real', { rich: false, log: noopLog });
+  expect(c.sendMessage).toHaveBeenCalledTimes(1);
+});
+
+test('a cover-image-only reply is NOT blocked by the blank guard', async () => {
+  // The body is empty but the reply is not: the photo IS the message. Guarding
+  // in sendText rather than sendReply is what keeps this path working.
+  const c = fakeClient();
+  await sendReply(c, 1, '![cat](https://example.com/cat.jpg)', {
+    rich: true,
+    log: noopLog,
+  });
+  expect(c.sendPhoto).toHaveBeenCalledTimes(1);
+});
+
+test('an emoji-only reply is real content, not blank', async () => {
+  // The ignorable class covers both the ZWJ inside 👨‍👩‍👧 and the variation
+  // selectors that pick emoji presentation — stripping them for the test must
+  // not make a legitimate emoji reply look empty.
+  const c = fakeClient();
+  await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
+  expect(c.sendMessage).toHaveBeenCalledTimes(1);
+});

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.1 — 2026-07-30
+
+- **The blank-text guard moved into `sendText`, the primitive that actually
+  throws.** 0.7.0 guarded only `runTelegramTurn`, leaving every other caller
+  unprotected — and callers reach the send path directly: a consuming app's
+  digest and nudge jobs hand model output straight to `sendReply`. A chain that
+  goes mute end to end (the residue 0.9.0-style empty-retry logic leaves behind)
+  therefore still threw `400 text must be non-empty` out of the job's send
+  instead of skipping quietly. `sendText` now returns early on text with no
+  visible characters; `isBlankText` is the one shared predicate. A reply that is
+  only a trailing cover image is unaffected — the guard sits below
+  `extractTrailingCover`, so the photo still goes out. The skip is **logged**
+  (`telegram blank send skipped`): a silent return leaves an operator chasing
+  "the digest never arrived" with no trace at all, which is the same
+  unobservable silence this guard exists to end. The turn loop's own path warns
+  before it ever reaches `sendText`, so there is no double warning.
+- **`isBlankText` now tests `\p{Default_Ignorable_Code_Point}`, not `\p{Cf}`.**
+  Not every invisible is a format character: variation selectors (U+FE00–FE0F)
+  are `Mn` and the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0) are `Lo`, so
+  a reply of nothing but a bare U+FE0F cleared the old guard and reached the Bot
+  API — the same `400 text must be non-empty` the guard was written for. The
+  Unicode property is the whole test on purpose: a hand-kept code point list
+  rots at every Unicode revision. Still predicate-only, so an emoji held
+  together by ZWJ and variation selectors is unaffected. Braille blank (U+2800)
+  is deliberately **not** covered: Telegram accepts it, so it is a visibly empty
+  bubble rather than a rejected send — a different problem from this one.
+- **The draft-clear condition is back to `if (status)`, as before 0.7.0.** The
+  widening rested on this file's claim that empty draft text clears the draft
+  outright, and a consuming app's channel notes record the opposite (an empty
+  draft renders a "Thinking…" placeholder — which is why that app never sends
+  empty text on abort). Neither claim is verified against the live Bot API, and
+  the failure mode of being wrong is worse than the cosmetic issue it fixed: a
+  fresh "Thinking…" rendered directly above the `emptyNotice` that says the turn
+  is over, with the ~30s draft expiry refreshed. An invisible-only reply
+  therefore keeps its stale 🔧 frame, exactly as in 0.6.0. The call site now
+  states the uncertainty instead of asserting either behaviour.
+
 ## 0.7.0 — 2026-07-30
 
 - **Turn-loop bridge** — a reply made of nothing but invisible characters no longer
