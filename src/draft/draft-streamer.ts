@@ -4,8 +4,6 @@ import { safeSlice } from '../format/chunk.ts';
 import { needsRich } from '../format/rich.ts';
 import { DEFAULT_DRAFT_CONSTANTS, type DraftConstants } from './constants.ts';
 
-type IntervalHandle = ReturnType<typeof setInterval>;
-
 export type DraftStreamerDeps = {
   client: Pick<
     BotClient,
@@ -17,10 +15,6 @@ export type DraftStreamerDeps = {
   log: Logger;
   /** Override any subset of the draft tunables; defaults fill the rest. */
   constants?: Partial<DraftConstants>;
-  now?: () => number;
-  schedule?: (fn: () => void, ms: number) => IntervalHandle;
-  cancel?: (h: IntervalHandle) => void;
-  delay?: (ms: number) => { promise: Promise<void>; cancel: () => void };
 };
 
 export type DraftStreamer = {
@@ -30,21 +24,9 @@ export type DraftStreamer = {
   abort(): Promise<void>;
 };
 
-const defaultDelay = (ms: number) => {
-  let handle: ReturnType<typeof setTimeout>;
-  const promise = new Promise<void>((resolve) => {
-    handle = setTimeout(resolve, ms);
-  });
-  return { promise, cancel: () => clearTimeout(handle) };
-};
-
 export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
   const k = { ...DEFAULT_DRAFT_CONSTANTS, ...deps.constants };
-  const now = deps.now ?? (() => Date.now());
-  const schedule =
-    deps.schedule ?? ((fn: () => void, ms: number) => setInterval(fn, ms));
-  const cancel = deps.cancel ?? ((h: IntervalHandle) => clearInterval(h));
-  const delay = deps.delay ?? defaultDelay;
+  const now = Date.now;
   const { client, chatId, draftId, log } = deps;
 
   let latest = '';
@@ -58,7 +40,7 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
   let disabled = false;
   let richMode = deps.rich; // turn-scoped: flips to plain on a 400
   let stopped = false;
-  let timer: IntervalHandle | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
 
   function send(text: string, t: number): void {
     const controller = new AbortController();
@@ -140,7 +122,7 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
     start(): void {
       lastTypingAt = now();
       client.sendChatAction({ chatId }).catch(() => {});
-      timer = schedule(tick, k.tickMs);
+      timer = setInterval(tick, k.tickMs);
     },
 
     push(fullText: string): void {
@@ -152,22 +134,24 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
       try {
         stopped = true;
         if (timer !== null) {
-          cancel(timer);
+          clearInterval(timer);
           timer = null;
         }
         if (!inFlight) return;
-        const drain = delay(k.drainMs);
+        let drainTimer: ReturnType<typeof setTimeout> | undefined;
         try {
           const landed = await Promise.race([
             inFlight.then(() => true),
-            drain.promise.then(() => false),
+            new Promise<false>((resolve) => {
+              drainTimer = setTimeout(() => resolve(false), k.drainMs);
+            }),
           ]);
           if (!landed) {
             inFlightController?.abort();
             await inFlight?.catch(() => {});
           }
         } finally {
-          drain.cancel(); // clear the drain timer on both paths — no leak
+          clearTimeout(drainTimer); // clear the drain timer on both paths — no leak
         }
       } catch (err) {
         log.warn('telegram draft finalize error', { err: String(err) });
@@ -178,7 +162,7 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
       try {
         stopped = true;
         if (timer !== null) {
-          cancel(timer);
+          clearInterval(timer);
           timer = null;
         }
         inFlightController?.abort();

@@ -259,72 +259,46 @@ describe('mdToTelegramHtml — fences (strict)', () => {
   });
 });
 
-describe('mdToTelegramHtml — partial mode (drafts)', () => {
-  test('auto-closes an unclosed bold at end of input', () => {
-    expect(mdToTelegramHtml('**овсянка на во', { partial: true })).toBe(
-      '<b>овсянка на во</b>',
-    );
-  });
-
-  test('the same input stays literal in strict mode (final = ground truth)', () => {
+describe('mdToTelegramHtml — unclosed constructs stay literal', () => {
+  // Every unpaired marker is emitted verbatim: the renderer never invents a
+  // closing tag, so a mid-stream chunk can only ever under-format, never
+  // mangle. (Telegram renders the live draft itself from the raw text the
+  // draft streamer pushes, so there is no partial-HTML path to serve.)
+  test('an unclosed bold stays literal', () => {
     expect(mdToTelegramHtml('**овсянка на во')).toBe('**овсянка на во');
   });
 
-  test('a bare trailing marker stays literal even in partial mode', () => {
-    expect(mdToTelegramHtml('итог **', { partial: true })).toBe('итог **');
+  test('a bare trailing marker stays literal', () => {
+    expect(mdToTelegramHtml('итог **')).toBe('итог **');
   });
 
-  test('auto-closes an unclosed code span', () => {
-    expect(mdToTelegramHtml('см `query_log', { partial: true })).toBe(
-      'см <code>query_log</code>',
+  test('an unclosed code span stays literal', () => {
+    expect(mdToTelegramHtml('см `query_log')).toBe('см `query_log');
+  });
+
+  test('unclosed marks stay literal across every marker family', () => {
+    expect(mdToTelegramHtml('~~зач')).toBe('~~зач');
+    expect(mdToTelegramHtml('__жир')).toBe('__жир');
+    expect(mdToTelegramHtml('_курс')).toBe('_курс');
+    expect(mdToTelegramHtml('*курс')).toBe('*курс');
+  });
+
+  test('an incomplete link stays literal', () => {
+    expect(mdToTelegramHtml('[x](https://e')).toBe('[x](https://e');
+  });
+
+  test('a bare trailing backtick stays literal', () => {
+    expect(mdToTelegramHtml('см `')).toBe('см `');
+  });
+
+  test('an unclosed mark inside a blockquote stays literal', () => {
+    expect(mdToTelegramHtml('> **bold')).toBe(
+      '<blockquote>**bold</blockquote>',
     );
   });
 
-  test('auto-closes unclosed marks across every marker family', () => {
-    expect(mdToTelegramHtml('~~зач', { partial: true })).toBe('<s>зач</s>');
-    expect(mdToTelegramHtml('__жир', { partial: true })).toBe('<b>жир</b>');
-    expect(mdToTelegramHtml('_курс', { partial: true })).toBe('<i>курс</i>');
-    expect(mdToTelegramHtml('*курс', { partial: true })).toBe('<i>курс</i>');
-  });
-
-  test('auto-closes unclosed fences with the tags matching the opening shape', () => {
-    expect(mdToTelegramHtml('```ts\nconst x = 1;', { partial: true })).toBe(
-      '<pre><code class="language-ts">const x = 1;</code></pre>',
-    );
-    expect(mdToTelegramHtml('```\nx', { partial: true })).toBe('<pre>x</pre>');
-    expect(mdToTelegramHtml('```foo">\nx', { partial: true })).toBe(
-      '<pre>x</pre>',
-    );
-  });
-
-  test('a fence opener with no content yet stays literal', () => {
-    expect(mdToTelegramHtml('```ts', { partial: true })).toBe('```ts');
-  });
-
-  test('an incomplete link stays literal in partial mode too', () => {
-    expect(mdToTelegramHtml('[x](https://e', { partial: true })).toBe(
-      '[x](https://e',
-    );
-  });
-
-  test('auto-close applies only to the last line', () => {
-    expect(mdToTelegramHtml('**a\nb', { partial: true })).toBe('**a\nb');
-  });
-
-  test('a bare trailing backtick stays literal in partial mode', () => {
-    expect(mdToTelegramHtml('см `', { partial: true })).toBe('см `');
-  });
-
-  test('auto-closes inside a blockquote that reaches end of input', () => {
-    expect(mdToTelegramHtml('> **bold', { partial: true })).toBe(
-      '<blockquote><b>bold</b></blockquote>',
-    );
-  });
-
-  test('auto-close at a lone-surrogate tail never throws', () => {
-    expect(() =>
-      mdToTelegramHtml('**ab\uD83D', { partial: true }),
-    ).not.toThrow();
+  test('a lone-surrogate tail after an unpaired marker never throws', () => {
+    expect(() => mdToTelegramHtml('**ab\uD83D')).not.toThrow();
   });
 });
 
@@ -367,10 +341,9 @@ describe('mdToTelegramHtml — totality and review pins', () => {
     '\uD83D**emoji bold**\uDE00',
     '',
   ];
-  test('never throws on pathological inputs (strict and partial)', () => {
+  test('never throws on pathological inputs', () => {
     for (const input of nasty) {
       expect(() => mdToTelegramHtml(input)).not.toThrow();
-      expect(() => mdToTelegramHtml(input, { partial: true })).not.toThrow();
       expect(typeof mdToTelegramHtml(input)).toBe('string');
     }
   });

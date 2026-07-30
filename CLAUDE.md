@@ -36,8 +36,9 @@ peer-isolation guarantee.
 ## Architecture: three layers + an optional adapter
 
 The dependency direction is strictly **Bridge → Draft → Formatting**; lower layers
-never import higher ones. Each layer has a barrel `index.ts`; `src/index.ts` re-exports
-all three layers (but not `/deepagents`, which is a separate package entry point).
+never import higher ones. Modules import each other by file directly (no per-layer
+barrels); `src/index.ts` is the single public barrel and re-exports all three layers
+(but not `/deepagents`, which is a separate package entry point).
 
 - **Formatting (`src/format/`, pure, zero deps):** `mdToTelegramHtml`,
   `chunkText` / `safeSlice` / `chunkRich`, and the rich helpers `repairRichTables` /
@@ -74,8 +75,9 @@ These are intentional and enforced by tests — preserve them when editing.
 
 - **Totality of `mdToTelegramHtml`:** it must **never throw** on arbitrary LLM output
   (pinned by `test/format/md-to-html.test.ts`). The send path also wraps it in
-  try/catch as defence-in-depth and falls back to plain text on `null`. It auto-closes
-  unclosed marks/fences only in `partial: true` (draft) mode.
+  try/catch as defence-in-depth and falls back to plain text on `null`. An unclosed
+  mark or fence is emitted **literally** — the renderer never invents a closing tag,
+  so a mid-stream chunk can only under-format, never mangle.
 - **Deterministic-400 fallback chains** keyed off `isBadRequest(err)` (a
   `TelegramApiError` with `error_code === 400` — "rejected, not delivered", safe to
   retry without double-send). A non-400 error always propagates. The chains:

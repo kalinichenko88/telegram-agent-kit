@@ -1,8 +1,8 @@
+import type { DraftConstants } from '../draft/constants.ts';
 import {
   createDraftStreamer,
-  type DraftConstants,
   type DraftStreamer,
-} from '../draft/index.ts';
+} from '../draft/draft-streamer.ts';
 import type {
   AgentStream,
   BotClient,
@@ -32,7 +32,6 @@ export type RunTelegramTurnOpts = {
       ctx: TurnContext,
       // biome-ignore lint/suspicious/noConfusingVoidType: `void` (not `undefined`) so a hook may return any value and have it ignored — narrowing to `undefined` would reject that.
     ) => void | { skip?: boolean } | Promise<void | { skip?: boolean }>;
-    beforeTurn?: (ctx: TurnContext) => void | Promise<void>;
     afterTurn?: (ctx: TurnContext) => void | Promise<void>;
   };
   draftConstants?: Partial<DraftConstants>;
@@ -89,16 +88,7 @@ export async function runTelegramTurn(
   let draftTornDown = false;
 
   try {
-    // 1. beforeTurn — isolated; never aborts the turn.
-    if (opts.hooks?.beforeTurn) {
-      try {
-        await opts.hooks.beforeTurn(ctx);
-      } catch (err) {
-        log.error('telegram beforeTurn hook failed', { err: String(err) });
-      }
-    }
-
-    // 2. preStream — before any snapshot, outside rollback. Sync-throw safe.
+    // 1. preStream — before any snapshot, outside rollback. Sync-throw safe.
     if (opts.hooks?.preStream) {
       let res: { skip?: boolean } | undefined;
       try {
@@ -110,14 +100,14 @@ export async function runTelegramTurn(
       if (res?.skip) return;
     }
 
-    // 3. resolve thread.
+    // 2. resolve thread.
     const threadId = await opts.threadStore.resolve(opts.chatKey, now());
 
-    // 4. snapshot — set the rollback target only now.
+    // 3. snapshot — set the rollback target only now.
     const checkpointId = await opts.checkpointer.snapshot(threadId);
     rollback = { threadId, checkpointId };
 
-    // 5. start the draft streamer.
+    // 4. start the draft streamer.
     draft = createDraftStreamer({
       client: opts.client,
       chatId: opts.chatKey.chatId,
@@ -128,7 +118,7 @@ export async function runTelegramTurn(
     });
     draft.start();
 
-    // 6. stream. `status` is draft-only scaffolding — it is composed onto the
+    // 5. stream. `status` is draft-only scaffolding — it is composed onto the
     //    pushed frame but never onto `reply`, so tool narration can animate
     //    live without ever reaching the persisted message.
     let reply = '';
@@ -152,7 +142,7 @@ export async function runTelegramTurn(
       } else if (ev.type === 'error') errorMessage = ev.message;
     }
 
-    // 7. errored → log, abort, rollback, tell the user.
+    // 6. errored → log, abort, rollback, tell the user.
     if (errorMessage !== undefined) {
       // The message is the ONLY record of why the turn died: the stream swallows
       // the original throw into this event, and rollback then erases the turn from
@@ -185,7 +175,7 @@ export async function runTelegramTurn(
       return;
     }
 
-    // 8. finalize + commit + send.
+    // 7. finalize + commit + send.
     draftTornDown = true;
     await draft.finalize().catch(() => {});
     // A turn that ends on a tool call leaves the 🔧 frame standing: finalize()
@@ -239,7 +229,7 @@ export async function runTelegramTurn(
     }
     await opts.threadStore.touch(opts.chatKey, now());
   } catch (err) {
-    // 9. throw mid-stream → rollback (only if snapshotted and not completed).
+    // 8. throw mid-stream → rollback (only if snapshotted and not completed).
     log.error('telegram turn failed', { err: String(err) });
     if (rollback && !turnCompleted) {
       draftTornDown = true;
@@ -251,7 +241,7 @@ export async function runTelegramTurn(
         );
     }
   } finally {
-    // 10. idempotent draft teardown + isolated afterTurn.
+    // 9. idempotent draft teardown + isolated afterTurn.
     if (!draftTornDown) await draft?.finalize().catch(() => {});
     if (opts.hooks?.afterTurn) {
       try {

@@ -3,11 +3,6 @@
  *  markdown.ts — src/runtime/markdown.ts owns that name in greps. Spec:
  *  docs/superpowers/specs/2026-06-07-telegram-markdown-rendering-design.md */
 
-export type MdToHtmlOpts = {
-  /** Draft mode: auto-close unclosed inline marks / fences at end of input. */
-  partial?: boolean;
-};
-
 const escapeHtml = (s: string): string =>
   s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
@@ -76,41 +71,27 @@ function findCloser(text: string, m: Mark, from: number): number {
 /** Inline marks at one precedence level. Text before a pair drops a level
  *  (it holds no pair of this type), text after keeps scanning at this level
  *  (`**a** and **b**` formats both). Loops, not recursion, along the line —
- *  totality must hold for marker-spam inputs. `autoClose` (partial mode)
- *  wraps an unclosed opener with ≥1 char of content to end-of-line. */
-function renderMarks(text: string, level: number, autoClose: boolean): string {
+ *  totality must hold for marker-spam inputs. */
+function renderMarks(text: string, level: number): string {
   const m = MARKS[level];
   if (m === undefined) return escapeHtml(text);
   let out = '';
   let rest = text;
   for (;;) {
     const open = findOpener(rest, m, 0);
-    if (open === -1) return out + renderMarks(rest, level + 1, autoClose);
+    if (open === -1) return out + renderMarks(rest, level + 1);
     const close = findCloser(rest, m, open + m.marker.length);
     if (close === -1) {
-      const tail = rest.slice(open + m.marker.length);
-      if (autoClose && tail.length > 0) {
-        return (
-          out +
-          renderMarks(rest.slice(0, open), level + 1, false) +
-          `<${m.tag}>${renderMarks(tail, level + 1, false)}</${m.tag}>`
-        );
-      }
       // unpaired → marker stays literal; keep scanning past it at this level
-      out += renderMarks(
-        rest.slice(0, open + m.marker.length),
-        level + 1,
-        false,
-      );
-      rest = tail;
+      out += renderMarks(rest.slice(0, open + m.marker.length), level + 1);
+      rest = rest.slice(open + m.marker.length);
       continue;
     }
     out +=
-      renderMarks(rest.slice(0, open), level + 1, false) +
+      renderMarks(rest.slice(0, open), level + 1) +
       `<${m.tag}>${renderMarks(
         rest.slice(open + m.marker.length, close),
         level + 1,
-        false,
       )}</${m.tag}>`;
     rest = rest.slice(close + m.marker.length);
   }
@@ -151,47 +132,37 @@ function matchLink(text: string): LinkMatch | null {
 
 /** Complete http(s) links only; the URL is an opaque attribute (emitted
  *  attribute-escaped exactly once, never rescanned by lower levels). */
-function renderLinks(text: string, autoClose: boolean): string {
+function renderLinks(text: string): string {
   let out = '';
   let rest = text;
   for (;;) {
     const m = matchLink(rest);
-    if (m === null) return out + renderMarks(rest, 0, autoClose);
+    if (m === null) return out + renderMarks(rest, 0);
     out +=
-      renderMarks(rest.slice(0, m.index), 0, false) +
-      `<a href="${escapeAttr(m.url)}">${renderMarks(m.label, 0, false)}</a>`;
+      renderMarks(rest.slice(0, m.index), 0) +
+      `<a href="${escapeAttr(m.url)}">${renderMarks(m.label, 0)}</a>`;
     rest = rest.slice(m.index + m.length);
   }
 }
 
 /** One line of inline markdown → HTML: code spans pair first (their content is
  *  opaque to links and marks), then links, then marks. */
-function renderInline(text: string, autoClose: boolean): string {
+function renderInline(text: string): string {
   let out = '';
   let rest = text;
   for (;;) {
     const open = rest.indexOf('`');
-    if (open === -1) return out + renderLinks(rest, autoClose);
+    if (open === -1) return out + renderLinks(rest);
     const close = rest.indexOf('`', open + 1);
-    if (close === -1) {
-      const inner = rest.slice(open + 1);
-      if (autoClose && inner.length > 0) {
-        return (
-          out +
-          renderLinks(rest.slice(0, open), false) +
-          `<code>${escapeHtml(inner)}</code>`
-        );
-      }
-      return out + renderLinks(rest, autoClose); // lone backtick stays literal
-    }
+    if (close === -1) return out + renderLinks(rest); // lone backtick stays literal
     if (close === open + 1) {
       // `` — empty span, both backticks literal
-      out += renderLinks(rest.slice(0, close + 1), false);
+      out += renderLinks(rest.slice(0, close + 1));
       rest = rest.slice(close + 1);
       continue;
     }
     out +=
-      renderLinks(rest.slice(0, open), false) +
+      renderLinks(rest.slice(0, open)) +
       `<code>${escapeHtml(rest.slice(open + 1, close))}</code>`;
     rest = rest.slice(close + 1);
   }
@@ -244,8 +215,7 @@ function boldHeading(html: string): string {
   return out;
 }
 
-export function mdToTelegramHtml(md: string, opts: MdToHtmlOpts = {}): string {
-  const partial = opts.partial === true;
+export function mdToTelegramHtml(md: string): string {
   const lines = md.split('\n');
   const out: string[] = [];
   let i = 0;
@@ -267,14 +237,8 @@ export function mdToTelegramHtml(md: string, opts: MdToHtmlOpts = {}): string {
       if (close !== -1) {
         out.push(renderFence(lines.slice(i + 1, close).join('\n'), lang));
         i = close + 1;
-      } else if (partial) {
-        // Draft mode: auto-close with the tags matching the opening shape;
-        // a bare trailing opener (no content yet) stays literal.
-        const body = lines.slice(i + 1).join('\n');
-        out.push(body.length > 0 ? renderFence(body, lang) : escapeHtml(line));
-        i = lines.length;
       } else {
-        // Strict mode: opener + everything after = opaque literal — code in
+        // Unterminated: opener + everything after = opaque literal — code in
         // a mid-fence-split chunk is never mangled, no <pre> is invented.
         out.push(escapeHtml(lines.slice(i).join('\n')));
         i = lines.length;
@@ -288,10 +252,7 @@ export function mdToTelegramHtml(md: string, opts: MdToHtmlOpts = {}): string {
         quoted.push((lines[j] ?? '').replace(/^>\s?/, ''));
         j += 1;
       }
-      const lastQuoted = partial && j === lines.length;
-      const inner = quoted
-        .map((q, k) => renderInline(q, lastQuoted && k === quoted.length - 1))
-        .join('\n');
+      const inner = quoted.map((q) => renderInline(q)).join('\n');
       // Telegram rejects an empty <blockquote>; a quote run with no real
       // content (a bare `>` line) stays literal rather than an empty tag.
       out.push(
@@ -302,22 +263,19 @@ export function mdToTelegramHtml(md: string, opts: MdToHtmlOpts = {}): string {
       i = j;
       continue;
     }
-    const autoClose = partial && i === lines.length - 1;
     const heading = /^#{1,6}\s+(.*)$/.exec(line);
     if (heading !== null) {
-      out.push(boldHeading(renderInline(heading[1] ?? '', autoClose)));
+      out.push(boldHeading(renderInline(heading[1] ?? '')));
       i += 1;
       continue;
     }
     const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
     if (bullet !== null) {
-      out.push(
-        `${bullet[1] ?? ''}• ${renderInline(bullet[2] ?? '', autoClose)}`,
-      );
+      out.push(`${bullet[1] ?? ''}• ${renderInline(bullet[2] ?? '')}`);
       i += 1;
       continue;
     }
-    out.push(renderInline(line, autoClose));
+    out.push(renderInline(line));
     i += 1;
   }
   return out.join('\n');
