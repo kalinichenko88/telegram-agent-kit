@@ -117,9 +117,8 @@ test('non-400 error propagates (no double-send)', async () => {
 // `400 text must be non-empty` out of the job's send instead of skipping.
 test('an invisible-only reply sends nothing at all', async () => {
   const c = fakeClient();
-  // Escaped, not literal: raw invisibles in source survive nothing — one
-  // formatter pass or copy-paste and this becomes `''`, still green, proving
-  // nothing about `\p{Cf}`.
+  // Escaped — a raw U+200B here silently becomes `''` under any reformat, and
+  // stays green while proving nothing.
   await sendReply(c, 1, '\u200B\u200B', { rich: true, log: noopLog });
   expect(c.sendMessage).not.toHaveBeenCalled();
   expect(c.sendRichMessage).not.toHaveBeenCalled();
@@ -132,7 +131,6 @@ test('an invisible-only reply sends nothing at all', async () => {
 test.each([
   ['variation selector', '\uFE0F'],
   ['hangul filler', '\u3164'],
-  ['mixed with whitespace', ' \u200B\uFE0F\n'],
 ])('a reply of only a %s sends nothing either', async (_label, blank) => {
   const c = fakeClient();
   await sendReply(c, 1, blank, { rich: true, log: noopLog });

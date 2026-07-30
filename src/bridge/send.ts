@@ -19,16 +19,13 @@ type SendOpts = { rich: boolean; log: Logger };
  *  chars (`\p{Cf}`: U+200B zero-width space, U+FEFF, U+2060, soft hyphen …) plus
  *  the ones outside that category which `\p{Cf}` alone would miss: variation
  *  selectors (U+FE00–FE0F, `Mn`) and the Hangul fillers (U+115F, U+1160, U+3164,
- *  U+FFA0, `Lo`). `String.trim` strips none of them, but the Bot API discards
- *  them all: a message made of nothing else comes back `400 text must be
- *  non-empty`, on the HTML send and again on the plain-text fallback, and the
+ *  U+FFA0, `Lo`) — the property, not a hand-kept code point list that rots at
+ *  every Unicode revision. `String.trim` strips none of them, but the Bot API
+ *  discards them all: a message made of nothing else comes back `400 text must
+ *  be non-empty`, on the HTML send and again on the plain-text fallback, and the
  *  second throw escapes the caller entirely. 2026-07-30 prod: a local fallback
  *  model answered a food-logging turn with a bare U+200B — the diary row was
- *  written, the send threw past `sendReply`, and the user got silence with no
- *  notice.
- *
- *  The property is deliberately the whole test, not a hand-kept code point list:
- *  the list rots at every Unicode revision, this doesn't.
+ *  written, the send threw past `sendReply`, and the user got silence.
  *
  *  Used ONLY as a predicate, never to rewrite outgoing text: the class also
  *  covers the ZWJ that holds emoji sequences together and the variation
@@ -121,11 +118,9 @@ export async function sendText(
   // jobs hand model output straight to `sendReply`). A chain that goes mute end
   // to end would otherwise throw out of a job's send rather than skip quietly.
   // The turn loop keeps its own check because it must also decide whether to
-  // announce the empty turn — this one only refuses to send nothing. It still
-  // logs: a silent skip leaves an operator chasing "the digest never arrived"
-  // with no trace, which is the same unobservable silence this guard exists to
-  // end. (The turn loop's own path logs `telegram empty reply` before it ever
-  // gets here, so this fires only for direct callers — no double warning.)
+  // announce the empty turn — this one only refuses to send nothing. It warns
+  // rather than skipping silently; the turn loop logs `telegram empty reply`
+  // before it ever gets here, so this fires only for direct callers.
   if (isBlankText(text)) {
     opts.log.warn('telegram blank send skipped', { chatId });
 

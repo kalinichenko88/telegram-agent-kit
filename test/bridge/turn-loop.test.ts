@@ -301,10 +301,7 @@ test('an invisible-only reply is treated as empty and never sent', async () => {
   // The draft is deliberately NOT rewritten here: what empty draft text does is
   // unverified against the live Bot API (see the comment at the call site), so
   // the condition stays as narrow as it was before 0.7.0.
-  // Asserted positively — as the exact frame, not `not.toBe('')`: `.at(-1)` on
-  // an empty frame list is `undefined`, so the negative form would also pass if
-  // the streamer stopped drafting entirely. The token resets `status`, so the
-  // last frame is the invisible reply itself, left standing.
+  // The exact frame, not `not.toBe('')`: `.at(-1)` is `undefined` on zero frames.
   expect(draftFrames(d.client).at(-1)).toBe('\u200B');
 });
 
