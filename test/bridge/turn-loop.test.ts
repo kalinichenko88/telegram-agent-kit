@@ -278,6 +278,73 @@ test('a tool-only turn clears the draft, warns, and sends nothing', async () => 
   expect(draftFrames(d.client).at(-1)).toBe('');
 });
 
+test('an invisible-only reply is treated as empty, not sent, and clears the draft', async () => {
+  // 2026-07-30 prod: the fallback model answered a food-logging turn with a bare
+  // U+200B. `trim()` keeps it, so it reached the send path, where Telegram 400s
+  // both the HTML and the plain retry — and that second throw escaped the turn.
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'log_meal', args: {} };
+    await settle();
+    yield { type: 'token', text: '​' };
+    await settle();
+  };
+  const warn = vi.fn();
+  const d = deps({
+    agentStream: stream,
+    draftConstants: { throttleMs: 0 },
+    log: { warn, error: () => {} },
+  });
+  await runTelegramTurn(d);
+
+  expect(warn).toHaveBeenCalledWith('telegram empty reply', { chatId: 1 });
+  expect(d.client.sendRichMessage).not.toHaveBeenCalled();
+  // The 🔧 frame was cleared even though the token reset `status`.
+  expect(draftFrames(d.client).at(-1)).toBe('');
+});
+
+test('emptyNotice tells the user a completed turn had nothing to say', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: '​' };
+  };
+  const d = deps({
+    agentStream: stream,
+    emptyNotice: 'ответ не сформировался',
+  });
+  await runTelegramTurn(d);
+
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ chatId: 1, text: 'ответ не сформировался' }),
+    undefined,
+  );
+  // Completed, not errored: the tool writes stand, so nothing is rolled back.
+  expect(d.checkpointer.rollback).not.toHaveBeenCalled();
+});
+
+test('emptyNotice is skipped when the turn was aborted via signal', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: '   ' };
+  };
+  const d = deps({
+    agentStream: stream,
+    emptyNotice: 'nothing',
+    signal: AbortSignal.abort(),
+  });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).not.toHaveBeenCalled();
+});
+
+test('emoji held together by ZWJ is a real reply, not a blank one', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: '👨‍👩‍👧' };
+  };
+  const d = deps({ agentStream: stream });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: '👨‍👩‍👧' }),
+    undefined,
+  );
+});
+
 test('opts.configurable is forwarded to agentStream context', async () => {
   let capturedConfigurable: Record<string, unknown> | undefined;
   const stream: AgentStream = async function* (_input, ctx) {

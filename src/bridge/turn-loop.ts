@@ -41,9 +41,29 @@ export type RunTelegramTurnOpts = {
    *  exhausted, graph threw). Without it the turn returns silently and the user
    *  sees only a draft that stops moving — indistinguishable from being ignored. */
   errorNotice?: string;
+  /** Plain-text line sent when the turn COMPLETES with nothing to say — it ended
+   *  on a tool call, or the model answered with invisible characters only.
+   *  Deliberately a separate line from `errorNotice`: this turn was not rolled
+   *  back, so whatever its tools wrote stands, and words like "it broke" invite a
+   *  re-send that logs the same thing twice. */
+  emptyNotice?: string;
 };
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
+
+/** Is this reply empty as far as Telegram is concerned? `\p{Cf}` are the
+ *  invisible format characters (U+200B zero-width space, U+FEFF, U+2060, soft
+ *  hyphen …), which `String.trim` does NOT strip but the Bot API discards: a
+ *  message made of nothing else comes back `400 text must be non-empty`, on the
+ *  HTML send and again on the plain-text fallback, and the second throw escapes
+ *  the whole turn. 2026-07-30 prod: a local fallback model answered a
+ *  food-logging turn with a bare U+200B — the diary row was written, the send
+ *  threw past `sendReply`, and the user got silence with no notice.
+ *  Used ONLY as a predicate, never to rewrite the outgoing text: `\p{Cf}` also
+ *  covers the ZWJ that holds emoji sequences together. */
+function isBlankReply(reply: string): boolean {
+  return reply.replace(/\p{Cf}/gu, '').trim() === '';
+}
 
 /** Skills load via progressive disclosure — the model reads
  *  `/skills/<name>/SKILL.md` with `read_file` (no dedicated tool). */
@@ -174,10 +194,19 @@ export async function runTelegramTurn(
     // throttle gate would swallow a push this late anyway. Empty `reply` sends
     // empty text, which clears the draft outright; that matters most in the
     // tool-only case below, where no message follows to explain the 🔧.
-    if (status) {
+    // An invisible-only reply is empty in every way that matters, so it collapses
+    // to '' here once: it must not reach `sendReply` (see isBlankReply), and it
+    // must clear the draft rather than freeze a stale 🔧 frame under itself — a
+    // reply of U+200B resets `status`, so that branch alone would not fire.
+    const finalText = isBlankReply(reply) ? '' : reply;
+    if (status || finalText === '') {
       await opts.client
         .sendMessageDraft(
-          { chatId: opts.chatKey.chatId, draftId: opts.draftId, text: reply },
+          {
+            chatId: opts.chatKey.chatId,
+            draftId: opts.draftId,
+            text: finalText,
+          },
           opts.signal,
         )
         .catch((e: unknown) =>
@@ -185,16 +214,28 @@ export async function runTelegramTurn(
         );
     }
     turnCompleted = true;
-    if (reply.trim().length > 0) {
+    if (finalText !== '') {
       await sendReply(
         opts.client,
         opts.chatKey.chatId,
-        reply,
+        finalText,
         { rich: opts.rich, log },
         opts.signal,
       );
     } else {
       log.warn('telegram empty reply', { chatId: opts.chatKey.chatId });
+      // Same raw-sendMessage discipline as errorNotice: no rendering, skipped on
+      // the caller's own abort. Unset → the pre-0.7 warn-only behaviour.
+      if (opts.emptyNotice && !opts.signal?.aborted) {
+        await opts.client
+          .sendMessage(
+            { chatId: opts.chatKey.chatId, text: opts.emptyNotice },
+            opts.signal,
+          )
+          .catch((e: unknown) =>
+            log.error('telegram empty notice failed', { err: String(e) }),
+          );
+      }
     }
     await opts.threadStore.touch(opts.chatKey, now());
   } catch (err) {
