@@ -278,14 +278,14 @@ test('a tool-only turn clears the draft, warns, and sends nothing', async () => 
   expect(draftFrames(d.client).at(-1)).toBe('');
 });
 
-test('an invisible-only reply is treated as empty, not sent, and clears the draft', async () => {
+test('an invisible-only reply is treated as empty and never sent', async () => {
   // 2026-07-30 prod: the fallback model answered a food-logging turn with a bare
   // U+200B. `trim()` keeps it, so it reached the send path, where Telegram 400s
   // both the HTML and the plain retry — and that second throw escaped the turn.
   const stream: AgentStream = async function* () {
     yield { type: 'tool_start', name: 'log_meal', args: {} };
     await settle();
-    yield { type: 'token', text: '​' };
+    yield { type: 'token', text: '\u200B' };
     await settle();
   };
   const warn = vi.fn();
@@ -298,8 +298,10 @@ test('an invisible-only reply is treated as empty, not sent, and clears the draf
 
   expect(warn).toHaveBeenCalledWith('telegram empty reply', { chatId: 1 });
   expect(d.client.sendRichMessage).not.toHaveBeenCalled();
-  // The 🔧 frame was cleared even though the token reset `status`.
-  expect(draftFrames(d.client).at(-1)).toBe('');
+  // The draft is deliberately NOT rewritten here: what empty draft text does is
+  // unverified against the live Bot API (see the comment at the call site), so
+  // the condition stays as narrow as it was before 0.7.0.
+  expect(draftFrames(d.client).at(-1)).not.toBe('');
 });
 
 test('emptyNotice tells the user a completed turn had nothing to say', async () => {

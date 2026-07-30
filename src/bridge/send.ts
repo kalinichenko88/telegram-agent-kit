@@ -14,6 +14,20 @@ const CAPTION_LIMIT = 1024;
 
 type SendOpts = { rich: boolean; log: Logger };
 
+/** Is this text empty as far as Telegram is concerned? `\p{Cf}` are the
+ *  invisible format characters (U+200B zero-width space, U+FEFF, U+2060, soft
+ *  hyphen …), which `String.trim` does NOT strip but the Bot API discards: a
+ *  message made of nothing else comes back `400 text must be non-empty`, on the
+ *  HTML send and again on the plain-text fallback, and the second throw escapes
+ *  the caller entirely. 2026-07-30 prod: a local fallback model answered a
+ *  food-logging turn with a bare U+200B — the diary row was written, the send
+ *  threw past `sendReply`, and the user got silence with no notice.
+ *  Used ONLY as a predicate, never to rewrite outgoing text: `\p{Cf}` also
+ *  covers the ZWJ that holds emoji sequences together. */
+export function isBlankText(text: string): boolean {
+  return text.replace(/\p{Cf}/gu, '').trim() === '';
+}
+
 /** Classic HTML send with HTML→plain 400 fallback (client.ts sendMessage). */
 async function sendClassic(
   client: BotClient,
@@ -93,6 +107,13 @@ export async function sendText(
   opts: SendOpts,
   signal?: AbortSignal,
 ): Promise<void> {
+  // The guard belongs HERE, not only in the turn loop: this is the funnel that
+  // throws, and background callers reach it directly (an app's digest / nudge
+  // jobs hand model output straight to `sendReply`). A chain that goes mute end
+  // to end would otherwise throw out of a job's send rather than skip quietly.
+  // The turn loop keeps its own check because it must also decide whether to
+  // announce the empty turn — this one only refuses to send nothing.
+  if (isBlankText(text)) return;
   const md = neutralizeRichMedia(text);
   if (opts.rich) await sendRich(client, chatId, md, opts.log, signal);
   else await sendClassic(client, chatId, md, signal);

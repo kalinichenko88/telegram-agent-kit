@@ -11,7 +11,7 @@ import type {
   Logger,
   ThreadStore,
 } from './interfaces.ts';
-import { sendReply } from './send.ts';
+import { isBlankText, sendReply } from './send.ts';
 
 export type TurnContext = { chatKey: ChatKey; userText: string };
 
@@ -50,20 +50,6 @@ export type RunTelegramTurnOpts = {
 };
 
 const NOOP_LOG: Logger = { warn: () => {}, error: () => {} };
-
-/** Is this reply empty as far as Telegram is concerned? `\p{Cf}` are the
- *  invisible format characters (U+200B zero-width space, U+FEFF, U+2060, soft
- *  hyphen …), which `String.trim` does NOT strip but the Bot API discards: a
- *  message made of nothing else comes back `400 text must be non-empty`, on the
- *  HTML send and again on the plain-text fallback, and the second throw escapes
- *  the whole turn. 2026-07-30 prod: a local fallback model answered a
- *  food-logging turn with a bare U+200B — the diary row was written, the send
- *  threw past `sendReply`, and the user got silence with no notice.
- *  Used ONLY as a predicate, never to rewrite the outgoing text: `\p{Cf}` also
- *  covers the ZWJ that holds emoji sequences together. */
-function isBlankReply(reply: string): boolean {
-  return reply.replace(/\p{Cf}/gu, '').trim() === '';
-}
 
 /** Skills load via progressive disclosure — the model reads
  *  `/skills/<name>/SKILL.md` with `read_file` (no dedicated tool). */
@@ -191,15 +177,20 @@ export async function runTelegramTurn(
     // A turn that ends on a tool call leaves the 🔧 frame standing: finalize()
     // stops the animation, it does not blank what it last wrote. Rewrite the
     // status-free text once, directly — the streamer is stopped by now, and its
-    // throttle gate would swallow a push this late anyway. Empty `reply` sends
-    // empty text, which clears the draft outright; that matters most in the
-    // tool-only case below, where no message follows to explain the 🔧.
-    // An invisible-only reply is empty in every way that matters, so it collapses
-    // to '' here once: it must not reach `sendReply` (see isBlankReply), and it
-    // must clear the draft rather than freeze a stale 🔧 frame under itself — a
-    // reply of U+200B resets `status`, so that branch alone would not fire.
-    const finalText = isBlankReply(reply) ? '' : reply;
-    if (status || finalText === '') {
+    // throttle gate would swallow a push this late anyway.
+    //
+    // What empty draft text DOES is not verified against the live Bot API: this
+    // file has claimed it clears the draft outright, while machine-spirit's
+    // channel notes record the opposite (an empty draft renders a "Thinking…"
+    // placeholder), which is why that app never sends empty text on abort. Until
+    // someone watches a real chat, the condition stays exactly as narrow as it
+    // was before 0.7.0 — `status` only. An invisible-only reply resets `status`,
+    // so such a turn keeps its stale 🔧 frame; cosmetic, pre-existing, and
+    // strictly better than a fresh "Thinking…" rendered directly above the
+    // `emptyNotice` that says the turn is over (it would also refresh the ~30s
+    // draft expiry).
+    const finalText = isBlankText(reply) ? '' : reply;
+    if (status) {
       await opts.client
         .sendMessageDraft(
           {

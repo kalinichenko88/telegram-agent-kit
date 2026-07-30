@@ -110,3 +110,42 @@ test('non-400 error propagates (no double-send)', async () => {
   ).rejects.toThrow('network');
   expect(c.sendMessage).not.toHaveBeenCalled();
 });
+
+// 2026-07-30 review: the blank guard belonged in the funnel that throws, not
+// only in the turn loop — background callers (an app's digest / nudge jobs) hand
+// model output straight to sendReply, so a chain that goes mute end to end threw
+// `400 text must be non-empty` out of the job's send instead of skipping.
+test('an invisible-only reply sends nothing at all', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, '​​', { rich: true, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  expect(c.sendRichMessage).not.toHaveBeenCalled();
+  expect(c.sendPhoto).not.toHaveBeenCalled();
+});
+
+test('whitespace-only likewise, and a real reply still goes out', async () => {
+  const c = fakeClient();
+  await sendReply(c, 1, '   \n\t ', { rich: false, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+  await sendReply(c, 1, 'real', { rich: false, log: noopLog });
+  expect(c.sendMessage).toHaveBeenCalledTimes(1);
+});
+
+test('a cover-image-only reply is NOT blocked by the blank guard', async () => {
+  // The body is empty but the reply is not: the photo IS the message. Guarding
+  // in sendText rather than sendReply is what keeps this path working.
+  const c = fakeClient();
+  await sendReply(c, 1, '![cat](https://example.com/cat.jpg)', {
+    rich: true,
+    log: noopLog,
+  });
+  expect(c.sendPhoto).toHaveBeenCalledTimes(1);
+});
+
+test('an emoji-only reply is real content, not blank', async () => {
+  // \p{Cf} covers the ZWJ inside 👨‍👩‍👧 — stripping it for the test must not
+  // make a legitimate emoji reply look empty.
+  const c = fakeClient();
+  await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
+  expect(c.sendMessage).toHaveBeenCalledTimes(1);
+});
