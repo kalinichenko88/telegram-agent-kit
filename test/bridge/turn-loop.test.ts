@@ -111,6 +111,169 @@ test('errorNotice is skipped when the turn was aborted via signal', async () => 
   expect(d.client.sendMessage).not.toHaveBeenCalled();
 });
 
+/** A turn that dies after its tools already wrote somewhere. The predicate is
+ *  what the app answers "those writes are real, don't erase the turn" with. */
+const failingStream: AgentStream = async function* () {
+  yield { type: 'tool_start', name: 'log_meal', args: {} };
+  yield { type: 'error', message: 'Recursion limit of 120 reached' };
+};
+
+test('shouldRollback → false keeps the failed turn in history', async () => {
+  const d = deps({
+    agentStream: failingStream,
+    hooks: { shouldRollback: () => false },
+  });
+  await runTelegramTurn(d);
+  expect(d.checkpointer.rollback).not.toHaveBeenCalled();
+});
+
+test('shouldRollback → true rolls back, same as no predicate', async () => {
+  const d = deps({
+    agentStream: failingStream,
+    hooks: { shouldRollback: async () => true },
+  });
+  await runTelegramTurn(d);
+  expect(d.checkpointer.rollback).toHaveBeenCalledWith('tg-1-main', 'cp-1');
+});
+
+test('no shouldRollback → unconditional rollback (0.7.2 default)', async () => {
+  const d = deps({ agentStream: failingStream, hooks: {} });
+  await runTelegramTurn(d);
+  expect(d.checkpointer.rollback).toHaveBeenCalledWith('tg-1-main', 'cp-1');
+});
+
+test('shouldRollback gets the threadId, the turn start and the error text', async () => {
+  const seen: unknown[] = [];
+  const d = deps({
+    agentStream: failingStream,
+    now: () => 1_700_000_000_000,
+    hooks: {
+      shouldRollback: (ctx: unknown) => {
+        seen.push(ctx);
+        return true;
+      },
+    },
+  });
+  await runTelegramTurn(d);
+  expect(seen).toEqual([
+    {
+      chatKey: { chatId: 1, agentId: 'main' },
+      userText: 'hi',
+      threadId: 'tg-1-main',
+      startedAt: 1_700_000_000_000,
+      error: 'Recursion limit of 120 reached',
+    },
+  ]);
+});
+
+test('a throwing shouldRollback keeps the turn and never breaks the turn loop', async () => {
+  // Fail-open by design: a predicate that throws answered nothing, and a turn
+  // wrongly kept is one stale thread entry, while a turn wrongly rolled back
+  // desyncs memory from writes that really happened. See rollbackUnlessVetoed.
+  const error = vi.fn();
+  const d = deps({
+    agentStream: failingStream,
+    log: { warn: () => {}, error },
+    hooks: {
+      shouldRollback: () => {
+        throw new Error('audit db down');
+      },
+    },
+  });
+  await expect(runTelegramTurn(d)).resolves.toBeUndefined();
+  expect(d.checkpointer.rollback).not.toHaveBeenCalled();
+  expect(error).toHaveBeenCalledWith(
+    'telegram shouldRollback hook failed',
+    expect.objectContaining({ err: expect.stringContaining('audit db down') }),
+  );
+});
+
+test('an aborted turn rolls back whatever the predicate says', async () => {
+  const shouldRollback = vi.fn(() => false);
+  const d = deps({
+    agentStream: failingStream,
+    signal: AbortSignal.abort(),
+    hooks: { shouldRollback },
+  });
+  await runTelegramTurn(d);
+  expect(shouldRollback).not.toHaveBeenCalled();
+  expect(d.checkpointer.rollback).toHaveBeenCalledWith('tg-1-main', 'cp-1');
+});
+
+test('a kept turn is told so with keptNotice, a rolled-back one with errorNotice', async () => {
+  const kept = deps({
+    agentStream: failingStream,
+    errorNotice: 'сломалось, повтори',
+    keptNotice: 'ход упал, но записи остались — не повторяй',
+    hooks: { shouldRollback: () => false },
+  });
+  await runTelegramTurn(kept);
+  expect(kept.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      text: 'ход упал, но записи остались — не повторяй',
+    }),
+    undefined,
+  );
+
+  const rolled = deps({
+    agentStream: failingStream,
+    errorNotice: 'сломалось, повтори',
+    keptNotice: 'ход упал, но записи остались — не повторяй',
+    hooks: { shouldRollback: () => true },
+  });
+  await runTelegramTurn(rolled);
+  expect(rolled.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'сломалось, повтори' }),
+    undefined,
+  );
+});
+
+test('keptNotice unset → a kept turn still gets errorNotice', async () => {
+  const d = deps({
+    agentStream: failingStream,
+    errorNotice: 'сломалось',
+    hooks: { shouldRollback: () => false },
+  });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'сломалось' }),
+    undefined,
+  );
+});
+
+test('a rollback that itself throws is reported to the user as kept', async () => {
+  const checkpointer: Checkpointer = {
+    snapshot: vi.fn(async () => 'cp-1'),
+    rollback: vi.fn(async () => {
+      throw new Error('saver offline');
+    }),
+  };
+  const d = deps({
+    agentStream: failingStream,
+    checkpointer,
+    errorNotice: 'сломалось, повтори',
+    keptNotice: 'ход упал, записи остались',
+  });
+  await expect(runTelegramTurn(d)).resolves.toBeUndefined();
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'ход упал, записи остались' }),
+    undefined,
+  );
+});
+
+test('shouldRollback also guards the mid-stream-throw path', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'log_meal', args: {} };
+    throw new Error('mid');
+  };
+  const d = deps({
+    agentStream: stream,
+    hooks: { shouldRollback: () => false },
+  });
+  await expect(runTelegramTurn(d)).resolves.toBeUndefined();
+  expect(d.checkpointer.rollback).not.toHaveBeenCalled();
+});
+
 test('throw mid-stream → rollback, never rethrows', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'partial' };

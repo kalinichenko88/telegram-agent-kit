@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.0 — 2026-07-31
+
+- **The rollback of a failed turn can be vetoed: `hooks.shouldRollback`.** Rolling
+  a turn back undoes MEMORY, never CONSEQUENCES — tools that completed before the
+  turn died have already written to the outside world, and no checkpoint rewind
+  touches those rows. 2026-07-31, a health bot: a turn ran 5m21s, made 25 write
+  calls and died on `Recursion limit of 120 reached`. The kit did exactly what it
+  promised — draft killed, thread rewound, `errorNotice` sent — and left six real
+  journal lines behind that the agent no longer remembered writing, so the next
+  turn started "repairing" its own output. The predicate gets a `RollbackContext`
+  (`chatKey`, `userText`, `threadId`, `startedAt`, `error`); returning `false`
+  leaves the turn standing. `startedAt` is `now()` pinned before the stream — no
+  tool of the turn can predate it — so "were there writes since the turn began?"
+  is answerable by a lookup on the app's own audit table. What counts as a
+  *writing* tool stays entirely with the app; the kit only asks. It lives in
+  `hooks` because that bag is the caller's callbacks and already steers the flow
+  (`preStream`'s `{ skip: true }`), not at the top level with the notices.
+- **Default unchanged, so this is a drop-in minor.** No predicate → unconditional
+  rollback, exactly as in 0.7.2. Cancellation via `signal` is exempt and never
+  consults the predicate: the caller asked for the turn to go away, which is a
+  different question from whether it is safe to forget. A predicate that **throws**
+  keeps the turn and logs — the two wrong answers are not symmetric, since a turn
+  wrongly kept is one stale thread entry that is visible and fixable by hand, while
+  a turn wrongly rolled back silently desyncs memory from writes that really
+  happened. The veto guards both failure paths — the `error` event and a mid-stream
+  throw — because both leave the same finished tool calls behind.
+- **`keptNotice`, a third notice line.** Split off `errorNotice` for the reason
+  `emptyNotice` was: a kept turn's writes stand, so "sorry, try again" is the one
+  thing the user must not do — the repeat logs the same thing twice. Optional,
+  falls back to `errorNotice`. Also sent when `checkpointer.rollback` itself throws:
+  the thread most likely still carries the turn, so the cautious wording is the
+  honest one. README documents what a kept turn actually leaves in the thread,
+  measured against `@langchain/langgraph` 1.4.8 rather than reasoned about.
+
 ## 0.7.2 — 2026-07-31
 
 - **`isBlankText` tests the UNION `[\p{Cf}\p{Default_Ignorable_Code_Point}]`.**
