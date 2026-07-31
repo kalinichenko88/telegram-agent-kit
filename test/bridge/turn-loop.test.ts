@@ -169,9 +169,8 @@ test('shouldRollback gets the threadId, the turn start and the error text', asyn
   });
   // Wall clock, not opts.now(): the predicate compares this against timestamps
   // its own tools wrote, and those carry real time.
-  const startedAt = seen[0]?.startedAt ?? 0;
-  expect(startedAt).toBeGreaterThanOrEqual(before);
-  expect(startedAt).toBeLessThanOrEqual(Date.now());
+  expect(seen[0]?.startedAt).toBeGreaterThanOrEqual(before);
+  expect(seen[0]?.startedAt).toBeLessThanOrEqual(Date.now());
 });
 
 test('a mid-stream throw reaches the predicate as a bare message, not "Error: …"', async () => {
