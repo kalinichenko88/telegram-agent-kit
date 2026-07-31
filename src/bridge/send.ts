@@ -31,8 +31,18 @@ type SendOpts = { rich: boolean; log: Logger };
  *  covers the ZWJ that holds emoji sequences together and the variation
  *  selectors that pick their presentation. */
 export function isBlankText(text: string): boolean {
-  return text.replace(/\p{Default_Ignorable_Code_Point}/gu, '').trim() === '';
+  return text.replace(BLANK_CLASS, '').trim() === '';
 }
+
+/** The union, not either half. `Default_Ignorable_Code_Point` misses part of
+ *  `Cf` (U+0600 and the other Arabic number signs, U+FFF9–FFFB), and `Cf` misses
+ *  the variation selectors (`Mn`) and Hangul fillers (`Lo`). The two classes
+ *  overlap without containing each other, so testing one leaves a hole shaped
+ *  like the other — and a consumer that tests the union (forge-backends ≥0.10.1
+ *  does, for the same question about a model's reply) then disagrees with this
+ *  one about the same text. Two layers answering "is there anything here?"
+ *  differently is the bug class this whole guard exists to end. */
+const BLANK_CLASS = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 
 /** Classic HTML send with HTML→plain 400 fallback (client.ts sendMessage). */
 async function sendClassic(

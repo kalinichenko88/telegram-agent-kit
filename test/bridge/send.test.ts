@@ -165,3 +165,14 @@ test('an emoji-only reply is real content, not blank', async () => {
   await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
   expect(c.sendMessage).toHaveBeenCalledTimes(1);
 });
+
+test('a Cf character outside Default_Ignorable is blank too', async () => {
+  // U+0600 (ARABIC NUMBER SIGN) is `Cf` but NOT Default_Ignorable; U+FE0F is the
+  // reverse. Testing either class alone leaves a hole shaped like the other, and
+  // forge-backends ≥0.10.1 tests the union for the same question — two layers
+  // disagreeing about the same reply is the bug class this guard exists to end.
+  const c = fakeClient();
+  await sendReply(c, 1, '؀؀', { rich: false, log: noopLog });
+  await sendReply(c, 1, '️', { rich: false, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+});
