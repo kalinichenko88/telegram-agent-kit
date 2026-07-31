@@ -23,8 +23,17 @@ type SendOpts = { rich: boolean; log: Logger };
  *  fallback, and the second throw escapes the caller entirely. 2026-07-30 prod:
  *  a local fallback model answered a food-logging turn with a bare U+200B — the
  *  diary row was written, the send threw past `sendReply`, and the user got
- *  silence. Which code points count is `BLANK_CLASS` below — Unicode properties,
- *  not a hand-kept list that rots at every Unicode revision.
+ *  silence.
+ *
+ *  The class is the UNION of two Unicode properties, not either half:
+ *  `Default_Ignorable_Code_Point` misses part of `\p{Cf}` (U+0600 and the other
+ *  Arabic number signs, U+FFF9–FFFB), and `\p{Cf}` misses the variation
+ *  selectors (`Mn`) and the Hangul fillers (`Lo`). They overlap without
+ *  containing each other, so testing one leaves a hole shaped like the other —
+ *  and a consumer that tests the union (forge-backends ≥0.10.1 does, for the
+ *  same question about a model's reply) then disagrees with this one about the
+ *  same text. Properties, not a hand-kept code point list that rots at every
+ *  Unicode revision.
  *
  *  Used ONLY as a predicate, never to rewrite outgoing text: the class also
  *  covers the ZWJ that holds emoji sequences together and the variation
@@ -33,14 +42,6 @@ export function isBlankText(text: string): boolean {
   return text.replace(BLANK_CLASS, '').trim() === '';
 }
 
-/** The union, not either half. `Default_Ignorable_Code_Point` misses part of
- *  `Cf` (U+0600 and the other Arabic number signs, U+FFF9–FFFB), and `Cf` misses
- *  the variation selectors (`Mn`) and Hangul fillers (`Lo`). The two classes
- *  overlap without containing each other, so testing one leaves a hole shaped
- *  like the other — and a consumer that tests the union (forge-backends ≥0.10.1
- *  does, for the same question about a model's reply) then disagrees with this
- *  one about the same text. Two layers answering "is there anything here?"
- *  differently is the bug class this whole guard exists to end. */
 const BLANK_CLASS = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 
 /** Classic HTML send with HTML→plain 400 fallback (client.ts sendMessage). */
