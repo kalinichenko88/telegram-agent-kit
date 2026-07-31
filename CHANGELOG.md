@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.2 — 2026-07-31
+
+- **`isBlankText` tests the UNION `[\p{Cf}\p{Default_Ignorable_Code_Point}]`.**
+  The two classes overlap without containing each other: `Default_Ignorable`
+  misses part of `Cf` (U+0600 and the other Arabic number signs, U+FFF9–FFFB),
+  and `Cf` misses the variation selectors (`Mn`) and the Hangul fillers (`Lo`).
+  Testing either alone leaves a hole shaped like the other, and left this
+  package disagreeing with forge-backends ≥0.10.1, which tests the union for the
+  same question: a bare U+0600 reply was mute to the model chain yet not blank
+  here, so it went out as an invisible message — no `400`, no
+  `blank send skipped` warn, an empty bubble, and callers gating on this
+  predicate treating the turn as delivered.
+
 ## 0.7.1 — 2026-07-30
 
 - **The blank-text guard moved into `sendText`, the primitive that actually

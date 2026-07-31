@@ -14,25 +14,35 @@ const CAPTION_LIMIT = 1024;
 
 type SendOpts = { rich: boolean; log: Logger };
 
-/** Is this text empty as far as Telegram is concerned? `Default_Ignorable_Code_Point`
- *  is Unicode's own name for the characters that render as nothing — the format
- *  chars (`\p{Cf}`: U+200B zero-width space, U+FEFF, U+2060, soft hyphen …) plus
- *  the ones outside that category which `\p{Cf}` alone would miss: variation
- *  selectors (U+FE00–FE0F, `Mn`) and the Hangul fillers (U+115F, U+1160, U+3164,
- *  U+FFA0, `Lo`) — the property, not a hand-kept code point list that rots at
- *  every Unicode revision. `String.trim` strips none of them, but the Bot API
- *  discards them all: a message made of nothing else comes back `400 text must
- *  be non-empty`, on the HTML send and again on the plain-text fallback, and the
- *  second throw escapes the caller entirely. 2026-07-30 prod: a local fallback
- *  model answered a food-logging turn with a bare U+200B — the diary row was
- *  written, the send threw past `sendReply`, and the user got silence.
+/** Is this text empty as far as Telegram is concerned? Not just whitespace: the
+ *  invisibles — U+200B zero-width space, U+FEFF, U+2060, soft hyphen, the
+ *  variation selectors (U+FE00–FE0F), the Hangul fillers (U+115F, U+1160,
+ *  U+3164, U+FFA0) — render as nothing, and `String.trim` strips none of them,
+ *  but the Bot API discards them all: a message made of nothing else comes back
+ *  `400 text must be non-empty`, on the HTML send and again on the plain-text
+ *  fallback, and the second throw escapes the caller entirely. 2026-07-30 prod:
+ *  a local fallback model answered a food-logging turn with a bare U+200B — the
+ *  diary row was written, the send threw past `sendReply`, and the user got
+ *  silence.
+ *
+ *  The class is the UNION of two Unicode properties, not either half:
+ *  `Default_Ignorable_Code_Point` misses part of `\p{Cf}` (U+0600 and the other
+ *  Arabic number signs, U+FFF9–FFFB), and `\p{Cf}` misses the variation
+ *  selectors (`Mn`) and the Hangul fillers (`Lo`). They overlap without
+ *  containing each other, so testing one leaves a hole shaped like the other —
+ *  and a consumer that tests the union (forge-backends ≥0.10.1 does, for the
+ *  same question about a model's reply) then disagrees with this one about the
+ *  same text. Properties, not a hand-kept code point list that rots at every
+ *  Unicode revision.
  *
  *  Used ONLY as a predicate, never to rewrite outgoing text: the class also
  *  covers the ZWJ that holds emoji sequences together and the variation
  *  selectors that pick their presentation. */
 export function isBlankText(text: string): boolean {
-  return text.replace(/\p{Default_Ignorable_Code_Point}/gu, '').trim() === '';
+  return text.replace(BLANK_CLASS, '').trim() === '';
 }
+
+const BLANK_CLASS = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 
 /** Classic HTML send with HTML→plain 400 fallback (client.ts sendMessage). */
 async function sendClassic(

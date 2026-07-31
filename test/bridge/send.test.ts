@@ -165,3 +165,12 @@ test('an emoji-only reply is real content, not blank', async () => {
   await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
   expect(c.sendMessage).toHaveBeenCalledTimes(1);
 });
+
+test('a Cf character outside Default_Ignorable is blank too', async () => {
+  // U+0600 (ARABIC NUMBER SIGN) is `Cf` but not Default_Ignorable; U+FE0F is the
+  // reverse. Either class alone leaves a hole shaped like the other.
+  const c = fakeClient();
+  await sendReply(c, 1, '؀؀', { rich: false, log: noopLog });
+  await sendReply(c, 1, '️', { rich: false, log: noopLog });
+  expect(c.sendMessage).not.toHaveBeenCalled();
+});
