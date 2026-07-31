@@ -34,7 +34,7 @@ and the kit owns the orchestration. No HTTP client, no framework, no globals.
 - **Live draft streaming** — a throttle / keepalive / typing-heartbeat / drain state
   machine that animates one native Telegram draft from a growing string.
 - **Turn-loop orchestration** — `snapshot → stream → animate → finalize → reply`,
-  with rollback on error and a guarantee it never throws out.
+  with a vetoable rollback on error and a guarantee it never throws out.
 - **Resilient send path** — automatic chunking, surrogate-safe splitting, and
   deterministic `400` fallbacks (rich → HTML → plain text; photo → text).
 - **Optional deepagents adapter** on a separate subpath, so the core never pulls in
@@ -163,8 +163,8 @@ the live draft *and* to the reply that gets sent. `tool_start` shows a transient
 frozen draft — it is cleared by the next token and **never** becomes part of the sent
 message. A skill load (a `read_file` on `/skills/<name>/SKILL.md`, how deepagents load
 skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` instead. An
-`error` rolls the turn back, logs the message, and — if you pass
-`errorNotice` — tells the user in the chat instead of going silent.
+`error` rolls the turn back (unless you veto it — see below), logs the message, and — if
+you pass `errorNotice` — tells the user in the chat instead of going silent.
 
 A turn can also *complete* with nothing to say: it ended on a tool call, or the model
 answered with invisible characters only (a bare U+200B counts as text for `trim()` but is
@@ -176,6 +176,63 @@ background job handing model output to `sendReply`) skips the send — with a
 `telegram blank send skipped` warning — instead of throwing a Bot API 400. That notice is a **separate** line from
 `errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
 stands, and "it broke" would invite a re-send that repeats the write.
+
+## Conditional rollback
+
+Rolling a failed turn back undoes **memory, never consequences**. Tools that finished
+before the turn died have already written to the outside world — notes, journal rows,
+tables — and no checkpoint rewind touches those. Erase the turn and the agent no longer
+remembers writes it really made, so the next turn reads its own output as foreign and
+starts "repairing" it.
+
+Which of your tools write is knowledge the kit cannot have, so it asks:
+
+```ts
+hooks: {
+  // false → keep the failed turn in the thread; true → rewind, as always.
+  shouldRollback: async ({ threadId, startedAt, error, chatKey, userText }) =>
+    !(await audit.hadWritesSince(threadId, startedAt)),
+},
+keptNotice: 'Ход упал на середине. Часть записей уже сделана — не повторяй, проверь.',
+```
+
+`threadId` is the same id your `AgentStream` got. `startedAt` is `Date.now()` pinned
+before the stream, so no tool of this turn can predate it — deliberately the **wall
+clock, not the injectable `opts.now`**, which is your domain clock for the thread store
+and may legitimately run hours off real time (feeding it a message's send time so a
+backlogged message is filed into the day it was sent is a real pattern). Compare
+`startedAt` against timestamps written by that same wall clock. Rules:
+
+- **No predicate → unconditional rollback**, byte for byte the pre-0.8.0 behaviour.
+- **Cancellation (`signal`) is exempt** — a cancelled turn is always rolled back, the
+  predicate isn't consulted. Mind this if you use `signal` as a turn *budget* rather than
+  for shutdown: a timed-out turn that already wrote gets erased anyway, which is the very
+  case the predicate exists for. Cancel that way and you want the veto on every path —
+  open an issue rather than working around it.
+- **A predicate that throws keeps the turn** and never breaks the loop. The two wrong
+  answers aren't symmetric: a turn wrongly kept is one stale thread entry you can see and
+  fix, a turn wrongly rolled back silently desyncs memory from real writes.
+- **It is awaited unbounded**, like every other hook here, and runs after the draft is
+  torn down but before the notice — a predicate that hangs parks the turn with a dead
+  draft and no `afterTurn`. Bound your own I/O.
+- Guards both failure paths — the `error` event *and* a mid-stream throw. `error` reaches
+  the predicate as a bare message on both (an `Error` is unwrapped, not stringified).
+- `keptNotice` replaces `errorNotice` for a kept turn (and falls back to it when unset),
+  because "sorry, try again" is the one thing the user must not do when the writes stand.
+  On the mid-stream-throw path only a *kept* turn speaks: a rolled-back one stays silent
+  there, exactly as it did before 0.8.0.
+
+**What a kept turn leaves in the thread.** Measured against `@langchain/langgraph` 1.4.8
+with a `MemorySaver`, killing a model → tool → model loop with `GraphRecursionError` (the
+failure from the incident this feature comes from): the thread keeps the human message,
+every `AIMessage` with its `tool_calls`, and a `ToolMessage` for every tool that actually
+completed — one checkpoint per super-step, the first written *before* the model ran. So
+the kept turn is an honest record of what happened, not a fragment: the agent's memory
+now matches the rows its tools wrote. Two caveats. The graph is left mid-run
+(`getState().next` points at the node that was about to run, with a pending task), and
+the turn has no final assistant message — the next user message appends to that state and
+runs from there. Judge for yourself whether your graph resumes cleanly from it; if it
+doesn't, that's an argument for rolling back and reconciling the writes by hand.
 
 ## API reference
 
@@ -204,10 +261,13 @@ stands, and "it broke" would invite a re-send that repeats the write.
   for passing per-turn data (e.g. `pendingImages`) to the agent without widening the core input type.
   Pass `errorNotice` (plain text, your language) to have a failed turn say so in the chat —
   omit it and the user just sees the draft stop, which reads as being ignored. Pass
-  `emptyNotice` for the same reason on a turn that completed with no reply text.
+  `emptyNotice` for the same reason on a turn that completed with no reply text, and
+  `keptNotice` for a failed turn your `hooks.shouldRollback` kept (see
+  [Conditional rollback](#conditional-rollback)).
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
   `opts` is `{ rich: boolean, log: Logger }`, with the same `rich` semantics as above.
-- Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`.
+- Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`,
+  `TurnContext`, `RollbackContext`.
 
 **Errors**
 
@@ -240,7 +300,8 @@ These are intentional and enforced by tests:
 - **Deterministic `400` fallbacks** keyed off `isBadRequest`: rich → classic HTML →
   plain text, and photo → text. Any non-`400` error always propagates.
 - **`runTelegramTurn` never throws out** — snapshot happens only after a turn isn't
-  skipped, rollback fires only on a real failure, and draft teardown is idempotent.
+  skipped, rollback fires only on a real failure (and only if `hooks.shouldRollback`
+  allows it), and draft teardown is idempotent.
 - **Surrogate-safe splitting** — chunking never severs a UTF-16 surrogate pair.
 
 ## Development
