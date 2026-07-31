@@ -14,18 +14,17 @@ const CAPTION_LIMIT = 1024;
 
 type SendOpts = { rich: boolean; log: Logger };
 
-/** Is this text empty as far as Telegram is concerned? `Default_Ignorable_Code_Point`
- *  is Unicode's own name for the characters that render as nothing — the format
- *  chars (`\p{Cf}`: U+200B zero-width space, U+FEFF, U+2060, soft hyphen …) plus
- *  the ones outside that category which `\p{Cf}` alone would miss: variation
- *  selectors (U+FE00–FE0F, `Mn`) and the Hangul fillers (U+115F, U+1160, U+3164,
- *  U+FFA0, `Lo`) — the property, not a hand-kept code point list that rots at
- *  every Unicode revision. `String.trim` strips none of them, but the Bot API
- *  discards them all: a message made of nothing else comes back `400 text must
- *  be non-empty`, on the HTML send and again on the plain-text fallback, and the
- *  second throw escapes the caller entirely. 2026-07-30 prod: a local fallback
- *  model answered a food-logging turn with a bare U+200B — the diary row was
- *  written, the send threw past `sendReply`, and the user got silence.
+/** Is this text empty as far as Telegram is concerned? Not just whitespace: the
+ *  invisibles — U+200B zero-width space, U+FEFF, U+2060, soft hyphen, the
+ *  variation selectors (U+FE00–FE0F), the Hangul fillers (U+115F, U+1160,
+ *  U+3164, U+FFA0) — render as nothing, and `String.trim` strips none of them,
+ *  but the Bot API discards them all: a message made of nothing else comes back
+ *  `400 text must be non-empty`, on the HTML send and again on the plain-text
+ *  fallback, and the second throw escapes the caller entirely. 2026-07-30 prod:
+ *  a local fallback model answered a food-logging turn with a bare U+200B — the
+ *  diary row was written, the send threw past `sendReply`, and the user got
+ *  silence. Which code points count is `BLANK_CLASS` below — Unicode properties,
+ *  not a hand-kept list that rots at every Unicode revision.
  *
  *  Used ONLY as a predicate, never to rewrite outgoing text: the class also
  *  covers the ZWJ that holds emoji sequences together and the variation
