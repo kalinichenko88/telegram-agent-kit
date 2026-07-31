@@ -26,13 +26,31 @@
   a turn wrongly rolled back silently desyncs memory from writes that really
   happened. The veto guards both failure paths — the `error` event and a mid-stream
   throw — because both leave the same finished tool calls behind.
+- **`startedAt` is the wall clock, not `opts.now()`.** The injectable clock is the
+  caller's DOMAIN clock for the thread store — a consuming app feeds it the
+  Telegram message's send time so a backlogged message is filed into the day it
+  was sent, hours off real time — while the audit rows a predicate compares it
+  against carry `Date.now()`. Riding on `opts.now` would have handed the
+  predicate a boundary from the wrong clock. Same split the draft engine already
+  makes with its own timing clock.
 - **`keptNotice`, a third notice line.** Split off `errorNotice` for the reason
   `emptyNotice` was: a kept turn's writes stand, so "sorry, try again" is the one
   thing the user must not do — the repeat logs the same thing twice. Optional,
   falls back to `errorNotice`. Also sent when `checkpointer.rollback` itself throws:
   the thread most likely still carries the turn, so the cautious wording is the
-  honest one. README documents what a kept turn actually leaves in the thread,
+  honest one. On the mid-stream-throw path only a **kept** turn speaks: silence
+  there used to mean "erased", and letting it also mean "your writes stand" is
+  what invites the duplicate re-send. A rolled-back turn stays as silent as it
+  was in 0.7.2. README documents what a kept turn actually leaves in the thread,
   measured against `@langchain/langgraph` 1.4.8 rather than reasoned about.
+- **`checkpointer.rollback` is called inside try/catch, not `.catch()`.** A
+  caller's `rollback` may be a plain method that validates before returning a
+  promise, and a SYNCHRONOUS throw walks straight past `.catch` — from the
+  mid-stream-throw handler that landed outside every try in `runTelegramTurn`,
+  breaking the one thing it promises cannot happen. Pinned by a test that fails
+  against the old chain. The `error` string also reaches the predicate in one
+  shape now: an `Error` from the throw path is unwrapped to `.message` instead of
+  arriving as `Error: …` where the event path delivers a bare message.
 
 ## 0.7.2 — 2026-07-31
 

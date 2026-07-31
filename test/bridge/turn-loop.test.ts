@@ -6,6 +6,7 @@ import type {
   Checkpointer,
   ThreadStore,
 } from '../../src/bridge/interfaces.ts';
+import type { RollbackContext } from '../../src/bridge/turn-loop.ts';
 import { runTelegramTurn } from '../../src/bridge/turn-loop.ts';
 
 const noopLog = { warn: () => {}, error: () => {} };
@@ -143,27 +144,105 @@ test('no shouldRollback → unconditional rollback (0.7.2 default)', async () =>
 });
 
 test('shouldRollback gets the threadId, the turn start and the error text', async () => {
-  const seen: unknown[] = [];
+  const seen: RollbackContext[] = [];
+  const before = Date.now();
   const d = deps({
-    agentStream: failingStream,
+    // A domain clock, as a real caller injects (machine-spirit feeds the kit the
+    // Telegram message's SEND time so a backlogged message is filed into the day
+    // it was sent). `startedAt` must not be that clock.
     now: () => 1_700_000_000_000,
+    agentStream: failingStream,
     hooks: {
-      shouldRollback: (ctx: unknown) => {
+      shouldRollback: (ctx: RollbackContext) => {
         seen.push(ctx);
         return true;
       },
     },
   });
   await runTelegramTurn(d);
-  expect(seen).toEqual([
-    {
-      chatKey: { chatId: 1, agentId: 'main' },
-      userText: 'hi',
-      threadId: 'tg-1-main',
-      startedAt: 1_700_000_000_000,
-      error: 'Recursion limit of 120 reached',
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toMatchObject({
+    chatKey: { chatId: 1, agentId: 'main' },
+    userText: 'hi',
+    threadId: 'tg-1-main',
+    error: 'Recursion limit of 120 reached',
+  });
+  // Wall clock, not opts.now(): the predicate compares this against timestamps
+  // its own tools wrote, and those carry real time.
+  const startedAt = seen[0]?.startedAt ?? 0;
+  expect(startedAt).toBeGreaterThanOrEqual(before);
+  expect(startedAt).toBeLessThanOrEqual(Date.now());
+});
+
+test('a mid-stream throw reaches the predicate as a bare message, not "Error: …"', async () => {
+  const seen: string[] = [];
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'log_meal', args: {} };
+    throw new Error('Recursion limit of 120 reached');
+  };
+  const d = deps({
+    agentStream: stream,
+    hooks: {
+      shouldRollback: ({ error }: RollbackContext) => {
+        seen.push(error);
+        return true;
+      },
     },
-  ]);
+  });
+  await runTelegramTurn(d);
+  // Same shape the `error`-event path delivers, so a predicate reading the text
+  // cannot decide one way on one path and the other way on the other.
+  expect(seen).toEqual(['Recursion limit of 120 reached']);
+});
+
+test('a kept turn on the mid-stream-throw path still gets keptNotice', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'log_meal', args: {} };
+    throw new Error('mid');
+  };
+  const d = deps({
+    agentStream: stream,
+    errorNotice: 'сломалось, повтори',
+    keptNotice: 'ход упал, записи остались',
+    hooks: { shouldRollback: () => false },
+  });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'ход упал, записи остались' }),
+    undefined,
+  );
+});
+
+test('a rolled-back turn on the mid-stream-throw path stays silent (0.7.2)', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'partial' };
+    throw new Error('mid');
+  };
+  const d = deps({
+    agentStream: stream,
+    errorNotice: 'сломалось, повтори',
+    keptNotice: 'ход упал, записи остались',
+  });
+  await runTelegramTurn(d);
+  expect(d.client.sendMessage).not.toHaveBeenCalled();
+});
+
+test('a checkpointer whose rollback throws SYNCHRONOUSLY never escapes the turn', async () => {
+  // Not an async method: a plain one that validates first. `.catch()` on the
+  // returned promise never sees this throw — only a try/catch around the call
+  // does, and from the mid-stream-throw handler it would leave runTelegramTurn.
+  const checkpointer: Checkpointer = {
+    snapshot: vi.fn(async () => 'cp-1'),
+    rollback: vi.fn((): Promise<void> => {
+      throw new Error('saver offline');
+    }),
+  };
+  const stream: AgentStream = async function* () {
+    yield { type: 'token', text: 'partial' };
+    throw new Error('mid');
+  };
+  const d = deps({ agentStream: stream, checkpointer });
+  await expect(runTelegramTurn(d)).resolves.toBeUndefined();
 });
 
 test('a throwing shouldRollback keeps the turn and never breaks the turn loop', async () => {

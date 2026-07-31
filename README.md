@@ -196,18 +196,31 @@ hooks: {
 keptNotice: 'Ход упал на середине. Часть записей уже сделана — не повторяй, проверь.',
 ```
 
-`startedAt` is `now()` pinned before the stream, so no tool of this turn can predate it;
-`threadId` is the same id your `AgentStream` got. Rules:
+`threadId` is the same id your `AgentStream` got. `startedAt` is `Date.now()` pinned
+before the stream, so no tool of this turn can predate it — deliberately the **wall
+clock, not the injectable `opts.now`**, which is your domain clock for the thread store
+and may legitimately run hours off real time (feeding it a message's send time so a
+backlogged message is filed into the day it was sent is a real pattern). Compare
+`startedAt` against timestamps written by that same wall clock. Rules:
 
 - **No predicate → unconditional rollback**, byte for byte the pre-0.8.0 behaviour.
-- **Cancellation (`signal`) is exempt** — the caller asked for the turn to go away, and
-  the predicate isn't consulted.
+- **Cancellation (`signal`) is exempt** — a cancelled turn is always rolled back, the
+  predicate isn't consulted. Mind this if you use `signal` as a turn *budget* rather than
+  for shutdown: a timed-out turn that already wrote gets erased anyway, which is the very
+  case the predicate exists for. Cancel that way and you want the veto on every path —
+  open an issue rather than working around it.
 - **A predicate that throws keeps the turn** and never breaks the loop. The two wrong
   answers aren't symmetric: a turn wrongly kept is one stale thread entry you can see and
   fix, a turn wrongly rolled back silently desyncs memory from real writes.
-- Guards both failure paths — the `error` event *and* a mid-stream throw.
+- **It is awaited unbounded**, like every other hook here, and runs after the draft is
+  torn down but before the notice — a predicate that hangs parks the turn with a dead
+  draft and no `afterTurn`. Bound your own I/O.
+- Guards both failure paths — the `error` event *and* a mid-stream throw. `error` reaches
+  the predicate as a bare message on both (an `Error` is unwrapped, not stringified).
 - `keptNotice` replaces `errorNotice` for a kept turn (and falls back to it when unset),
   because "sorry, try again" is the one thing the user must not do when the writes stand.
+  On the mid-stream-throw path only a *kept* turn speaks: a rolled-back one stays silent
+  there, exactly as it did before 0.8.0.
 
 **What a kept turn leaves in the thread.** Measured against `@langchain/langgraph` 1.4.8
 with a `MemorySaver`, killing a model → tool → model loop with `GraphRecursionError` (the

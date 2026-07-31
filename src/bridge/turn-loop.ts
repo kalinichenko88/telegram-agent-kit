@@ -22,9 +22,11 @@ export type RollbackContext = TurnContext & {
   /** The thread the turn ran on — the same id the `AgentStream` received, so
    *  whatever the tools wrote under it can be looked up by the same key. */
   threadId: string;
-  /** `now()` at the moment the turn resolved its thread, pinned before the
+  /** `Date.now()` at the moment the turn resolved its thread, pinned before the
    *  stream started. The lower bound of "writes this turn made": no tool of this
-   *  turn can have run earlier. */
+   *  turn can have run earlier. Wall clock on purpose — NOT the injectable
+   *  `opts.now`, which is the caller's domain clock for the thread store and may
+   *  deliberately run hours off (a message's send time rather than now). */
   startedAt: number;
   /** Why the turn died — the `error` event's message, or `String(err)` for a
    *  mid-stream throw. The kit has already logged it; passed on so a predicate
@@ -60,8 +62,14 @@ export type RunTelegramTurnOpts = {
      *  from this bag (`{ skip: true }` ends the turn before any snapshot), so
      *  "hooks are void-only side effects" was never the rule that kept it out.
      *
-     *  NOT consulted when the turn was cancelled via `signal` — see
-     *  `rollbackUnlessVetoed`. */
+     *  NOT consulted when the turn was cancelled via `signal`: a cancelled turn
+     *  is always rolled back. Mind that if you use `signal` as a turn BUDGET
+     *  rather than for shutdown, since a timed-out turn that already wrote is
+     *  then erased anyway — the case this predicate exists for.
+     *
+     *  Awaited unbounded, like every other hook here, and it runs after the
+     *  draft is torn down but before the notice: a predicate that hangs parks
+     *  the turn with a dead draft and no `afterTurn`. Bound your own I/O. */
     shouldRollback?: (ctx: RollbackContext) => boolean | Promise<boolean>;
   };
   draftConstants?: Partial<DraftConstants>;
@@ -164,15 +172,43 @@ export async function runTelegramTurn(
         return false;
       }
     }
-    return await opts.checkpointer
-      .rollback(target.threadId, target.checkpointId)
-      .then(() => true)
-      .catch((e: unknown) => {
-        // Reported as not-rolled-back on purpose: the thread most likely still
-        // carries the turn, and the cautious notice is the honest one here.
-        log.error('telegram rollback failed', { err: String(e) });
-        return false;
-      });
+    // try/catch, not `.catch()`: a caller's `rollback` may be a plain method
+    // that validates before returning a promise, and a SYNCHRONOUS throw walks
+    // straight past `.catch`. From the step-9 handler that lands outside every
+    // try in this function — i.e. out of `runTelegramTurn`, which is the one
+    // thing this function promises cannot happen.
+    try {
+      await opts.checkpointer.rollback(target.threadId, target.checkpointId);
+      return true;
+    } catch (e) {
+      // Reported as not-rolled-back on purpose: the thread most likely still
+      // carries the turn, and the cautious notice is the honest one here.
+      log.error('telegram rollback failed', { err: String(e) });
+      return false;
+    }
+  };
+
+  /** The plain-text line a FAILED turn says out loud. Raw sendMessage, never the
+   *  send path: it fires when things are already broken, so it must not route
+   *  through rendering that could be broken too. Skipped on abort — that
+   *  cancellation is the caller's own. Sync-throw safe for the same reason the
+   *  rollback above is: one call site sits in the catch handler. */
+  const sendFailureNotice = async (rolledBack: boolean): Promise<void> => {
+    // A kept turn's tool writes stand, so `errorNotice` wording like "sorry, say
+    // that again" is the one thing the user must NOT do — the repeat logs the
+    // same thing a second time.
+    const text = rolledBack
+      ? opts.errorNotice
+      : (opts.keptNotice ?? opts.errorNotice);
+    if (!text || opts.signal?.aborted) return;
+    try {
+      await opts.client.sendMessage(
+        { chatId: opts.chatKey.chatId, text },
+        opts.signal,
+      );
+    } catch (e) {
+      log.error('telegram error notice failed', { err: String(e) });
+    }
   };
 
   try {
@@ -200,8 +236,16 @@ export async function runTelegramTurn(
     // 3. resolve thread. `startedAt` is pinned here, ahead of the stream: no
     //    tool of this turn can have run before it, so it is a sound lower bound
     //    for a `shouldRollback` predicate asking "did this turn write anything?".
-    const startedAt = now();
-    const threadId = await opts.threadStore.resolve(opts.chatKey, startedAt);
+    //
+    //    Wall clock, deliberately NOT `opts.now()`. That seam is the caller's
+    //    DOMAIN clock for the thread store — a consuming app feeds it the
+    //    Telegram message's send time so a backlogged message is filed into the
+    //    day it was sent, which can be hours off real time. The predicate
+    //    compares this against timestamps its own tools wrote, so it needs the
+    //    same clock those rows carry. Same split the draft engine already makes:
+    //    its timing has its own clock, independent of this one.
+    const startedAt = Date.now();
+    const threadId = await opts.threadStore.resolve(opts.chatKey, now());
 
     // 4. snapshot — set the rollback target only now.
     const checkpointId = await opts.checkpointer.snapshot(threadId);
@@ -254,26 +298,7 @@ export async function runTelegramTurn(
       draftTornDown = true;
       await draft.abort().catch(() => {});
       const rolledBack = await rollbackUnlessVetoed(rollback, errorMessage);
-      // Raw sendMessage, not the send path: the notice fires when things are
-      // already broken, so it must not route through rendering that could be
-      // broken too. Skipped on abort — that cancellation is the caller's own.
-      //
-      // Which line: a kept turn's tool writes stand, so `errorNotice` wording
-      // like "sorry, say that again" is the one thing the user must NOT do —
-      // the repeat logs the same thing a second time.
-      const notice = rolledBack
-        ? opts.errorNotice
-        : (opts.keptNotice ?? opts.errorNotice);
-      if (notice && !opts.signal?.aborted) {
-        await opts.client
-          .sendMessage(
-            { chatId: opts.chatKey.chatId, text: notice },
-            opts.signal,
-          )
-          .catch((e: unknown) =>
-            log.error('telegram error notice failed', { err: String(e) }),
-          );
-      }
+      await sendFailureNotice(rolledBack);
 
       return;
     }
@@ -340,12 +365,21 @@ export async function runTelegramTurn(
     // 9. throw mid-stream → rollback (only if snapshotted and not completed).
     //    Same veto as the `error` event: a turn that died by throwing had the
     //    same tools running, so exempting this path would leave the hole open on
-    //    the other side. No notice here — this path has never sent one.
+    //    the other side.
     log.error('telegram turn failed', { err: String(err) });
     if (rollback && !turnCompleted) {
       draftTornDown = true;
       await draft?.abort().catch(() => {});
-      await rollbackUnlessVetoed(rollback, String(err));
+      // `.message`, not `String(err)`: the `error`-event path hands the predicate
+      // a bare message, and one failure arriving as `Recursion limit…` on one
+      // path and `Error: Recursion limit…` on the other silently flips any
+      // predicate that reads the text.
+      const message = err instanceof Error ? err.message : String(err);
+      const rolledBack = await rollbackUnlessVetoed(rollback, message);
+      // Only a KEPT turn speaks here. A rolled-back one stays silent exactly as
+      // it did before 0.8.0 — but silence used to mean one thing, and letting it
+      // now also mean "your writes stand" is what invites the duplicate re-send.
+      if (!rolledBack) await sendFailureNotice(false);
     }
   } finally {
     // 10. idempotent draft teardown + isolated afterTurn.
