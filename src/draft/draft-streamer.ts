@@ -91,8 +91,16 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
           // ~once per throttleMs, so they are the first thing to hit a rate
           // limit — counting a 429 as a failure kills the draft for the whole
           // turn over a delay the API already told us how to ride out.
-          // retry_after is seconds; absent (non-standard 429) → 1s.
-          const retryAfter = err.parameters?.retry_after ?? 1;
+          // retry_after is seconds and comes verbatim from the caller's
+          // transport (untyped Bot API JSON), so a missing / zero / negative /
+          // non-numeric value must still buy a real pause: without one the
+          // draft would re-attempt every throttleMs against a throttled chat
+          // for the whole turn, and a 429 no longer spends the budget that
+          // used to stop it.
+          const retryAfter = Math.max(
+            1,
+            Number(err.parameters?.retry_after) || 1,
+          );
           backoffUntil = now() + retryAfter * 1000;
           log.warn('telegram draft rate limited', {
             chat_id: chatId,
@@ -148,9 +156,15 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
 
   function tick(): void {
     maybeFlush();
-    if (!stopped && now() - lastTypingAt >= k.typingHeartbeatMs) {
+    const t = now();
+    // The typing action spends the same per-chat budget as a draft write, so
+    // it observes the 429 backoff too — heartbeating a chat that just told us
+    // to wait only extends the throttle we are riding out. The bubble lapses
+    // for the backoff window; that is the honest state of the turn.
+    if (stopped || t < backoffUntil) return;
+    if (t - lastTypingAt >= k.typingHeartbeatMs) {
       client.sendChatAction({ chatId }).catch(() => {});
-      lastTypingAt = now();
+      lastTypingAt = t;
     }
   }
 

@@ -339,9 +339,34 @@ describe('DraftStreamer', () => {
       }),
     );
     await s.settle();
+    const typingBefore = s.typing.length;
     s.advance(20000); // past the keepalive window, inside the backoff
     s.tick();
     expect(s.drafts.length).toBe(2); // no keepalive write while throttled
+    // The typing action spends the same per-chat budget — heartbeating a
+    // throttled chat would extend the very window we are waiting out.
+    expect(s.typing.length).toBe(typingBefore);
+  });
+
+  test('a 429 without a usable retry_after still buys a real pause', async () => {
+    for (const parameters of [
+      undefined,
+      { retry_after: 0 },
+      { retry_after: -5 },
+      { retry_after: 'soon' as unknown as number },
+    ]) {
+      const s = setup();
+      s.streamer.push('a');
+      s.rejectDraft(new TelegramApiError(429, 'Too Many Requests', parameters));
+      await s.settle();
+      s.advance(999); // inside the 1s floor
+      s.streamer.push('ab');
+      s.tick();
+      expect(s.drafts.length).toBe(1); // never a 300ms retry storm
+      s.advance(1); // floor elapsed
+      s.streamer.push('abc');
+      expect(s.drafts.length).toBe(2);
+    }
   });
 
   test('keepalive re-sends as plain after a 400 rich->plain flip', async () => {
