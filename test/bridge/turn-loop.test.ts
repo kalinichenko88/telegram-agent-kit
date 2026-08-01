@@ -426,7 +426,7 @@ test('tool_start status never leaks into the sent reply', async () => {
   expect(d.client.sendRichMessage).not.toHaveBeenCalled();
 });
 
-test('a token after a tool_start clears the status from the draft', async () => {
+test('a token after a tool_start keeps the tool line above it', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'one ' };
     await settle();
@@ -438,16 +438,14 @@ test('a token after a tool_start clears the status from the draft', async () => 
   const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
   await runTelegramTurn(d);
 
-  const frames = draftFrames(d.client);
-  // The status was visible mid-turn...
-  expect(frames.some((f) => f.includes('🔧') && f.includes('web_search'))).toBe(
-    true,
-  );
-  // ...and the next token replaced it rather than stacking under it.
-  expect(frames.at(-1)).toBe('one two');
+  // The feed is append-only. Pre-0.9 the tool line was DELETED the moment tokens
+  // resumed, which edits the middle of the draft — and the client repaints every
+  // character of a draft whose middle changed. Keeping it costs nothing on
+  // screen and makes each token a pure append to the tail.
+  expect(draftFrames(d.client).at(-1)).toBe('🔧 `web_search`…\n─────\none two');
 });
 
-test('a turn ending on a tool_start does not leave 🔧 as the last draft frame', async () => {
+test('a turn ending on a tool_start leaves the feed standing', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'token', text: 'thinking ' };
     await settle();
@@ -457,13 +455,42 @@ test('a turn ending on a tool_start does not leave 🔧 as the last draft frame'
   const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
   await runTelegramTurn(d);
 
-  expect(draftFrames(d.client).at(-1)).toBe('thinking ');
+  // No final rewrite: the reply below goes out as a real message, and a real
+  // message wipes every live draft in the chat on its own.
+  expect(draftFrames(d.client).at(-1)).toBe(
+    '🔧 `web_search`…\n─────\nthinking ',
+  );
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'thinking ' }),
+    undefined,
+  );
 });
 
-test('a skill load (read_file on SKILL.md) relabels the draft status', async () => {
+test('a stream-supplied label outranks the generic 🔧 line', async () => {
+  // The skill relabel used to be hardcoded here; it now belongs to /deepagents,
+  // which is where knowledge of `read_file` and skill paths actually applies.
+  // The core only honours whatever label the stream hands it.
   const stream: AgentStream = async function* () {
-    yield { type: 'token', text: 'sec ' };
+    yield {
+      type: 'tool_start',
+      name: 'read_file',
+      args: {},
+      label: '🧠 load_skill(`food-logging`)…',
+    };
     await settle();
+  };
+  const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
+  await runTelegramTurn(d);
+
+  const frames = draftFrames(d.client);
+  expect(frames.some((f) => f.includes('🧠 load_skill(`food-logging`)…'))).toBe(
+    true,
+  );
+  expect(frames.some((f) => f.includes('🔧'))).toBe(false);
+});
+
+test('the core knows no tool names — an unlabelled read_file stays generic', async () => {
+  const stream: AgentStream = async function* () {
     yield {
       type: 'tool_start',
       name: 'read_file',
@@ -475,31 +502,112 @@ test('a skill load (read_file on SKILL.md) relabels the draft status', async () 
   await runTelegramTurn(d);
 
   const frames = draftFrames(d.client);
-  expect(frames.some((f) => f.includes('🧠 load_skill(`food-logging`)…'))).toBe(
-    true,
-  );
-  // The generic 🔧 label never appears for a skill read.
-  expect(frames.some((f) => f.includes('🔧'))).toBe(false);
+  expect(frames.some((f) => f.includes('🔧 `read_file`…'))).toBe(true);
+  expect(frames.some((f) => f.includes('🧠'))).toBe(false);
 });
 
-test('a plain read_file keeps the generic 🔧 status', async () => {
+test('formatTool outranks the label, and null hides the call outright', async () => {
   const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'write_journal', args: { kcal: 620 } };
+    await settle();
+    yield { type: 'tool_start', name: 'noisy', args: {}, label: '🧠 noisy…' };
+    await settle();
+    yield { type: 'tool_start', name: 'deferred', args: {}, label: '🧠 kept…' };
+    await settle();
+    yield { type: 'token', text: 'done' };
+    await settle();
+  };
+  const d = deps({
+    agentStream: stream,
+    draftConstants: { throttleMs: 0 },
+    // `null` must not read as "no opinion": a `??` chain would fall through to
+    // the label and print the very line the formatter asked to suppress.
+    formatTool: ({ name, args }: { name: string; args: unknown }) =>
+      name === 'write_journal'
+        ? `📝 logged: ${(args as { kcal: number }).kcal} kcal`
+        : name === 'noisy'
+          ? null
+          : undefined,
+  });
+  await runTelegramTurn(d);
+
+  expect(draftFrames(d.client).at(-1)).toBe(
+    '📝 logged: 620 kcal\n🧠 kept…\n─────\ndone',
+  );
+});
+
+test('the plan is a feed block anchored where it first appeared', async () => {
+  const stream: AgentStream = async function* () {
+    yield { type: 'tool_start', name: 'load', args: {} };
+    await settle();
     yield {
-      type: 'tool_start',
-      name: 'read_file',
-      args: { file_path: '/notes/todo.md' },
+      type: 'plan',
+      items: [
+        { text: 'find', status: 'active' },
+        { text: 'count', status: 'pending' },
+      ],
     };
+    await settle();
+    yield { type: 'tool_start', name: 'query', args: {} };
+    await settle();
+    yield {
+      type: 'plan',
+      items: [
+        { text: 'find', status: 'done' },
+        { text: 'count', status: 'active' },
+      ],
+    };
+    await settle();
+    yield { type: 'token', text: 'answer' };
     await settle();
   };
   const d = deps({ agentStream: stream, draftConstants: { throttleMs: 0 } });
   await runTelegramTurn(d);
 
-  const frames = draftFrames(d.client);
-  expect(frames.some((f) => f.includes('🔧 `read_file`…'))).toBe(true);
-  expect(frames.some((f) => f.includes('🧠'))).toBe(false);
+  // The second plan updates the block in place: it neither appends a second plan
+  // nor moves — `query` stays BELOW the plan, where it landed.
+  expect(draftFrames(d.client).at(-1)).toBe(
+    [
+      '🔧 `load`…',
+      '📋 Plan',
+      '✔️ f̶i̶n̶d̶',
+      '🔘 count',
+      '🔧 `query`…',
+      '─────',
+      'answer',
+    ].join('\n'),
+  );
+  // And none of the feed reaches the persisted message.
+  expect(d.client.sendMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'answer' }),
+    undefined,
+  );
 });
 
-test('a tool-only turn clears the draft, warns, and sends nothing', async () => {
+test('feedConstants override icons and heading without losing the rest', async () => {
+  const stream: AgentStream = async function* () {
+    yield {
+      type: 'plan',
+      items: [
+        { text: 'go', status: 'active' },
+        { text: 'wait', status: 'pending' },
+      ],
+    };
+    await settle();
+  };
+  const d = deps({
+    agentStream: stream,
+    draftConstants: { throttleMs: 0 },
+    // Only `active` is overridden — a wholesale replace of `icons` would leave
+    // the other two rendering as `undefined`.
+    feedConstants: { planTitle: '📋 План', icons: { active: '⏳' } },
+  });
+  await runTelegramTurn(d);
+
+  expect(draftFrames(d.client).at(-1)).toBe('📋 План\n⏳ go\n⬜ wait');
+});
+
+test('a tool-only turn warns, sends nothing, and keeps its feed on screen', async () => {
   const stream: AgentStream = async function* () {
     yield { type: 'tool_start', name: 'web_search', args: {} };
     await settle();
@@ -515,8 +623,12 @@ test('a tool-only turn clears the draft, warns, and sends nothing', async () => 
   expect(warn).toHaveBeenCalledWith('telegram empty reply', { chatId: 1 });
   expect(d.client.sendMessage).not.toHaveBeenCalled();
   expect(d.client.sendRichMessage).not.toHaveBeenCalled();
-  // Nothing is sent, so an uncleared 🔧 would stand on screen unexplained.
-  expect(draftFrames(d.client).at(-1)).toBe('');
+  // Blanking the draft was the pre-0.9 move here. Watching a live chat showed
+  // what it actually buys: empty draft text renders an EMPTY bubble, it does not
+  // clear the draft — so it traded a feed that at least says what the turn did
+  // for a blank box. `emptyNotice`, being a real message, wipes the feed; unset,
+  // it expires with the draft in ~30s.
+  expect(draftFrames(d.client).at(-1)).toBe('🔧 `web_search`…');
 });
 
 test('an invisible-only reply is treated as empty and never sent', async () => {
@@ -539,11 +651,12 @@ test('an invisible-only reply is treated as empty and never sent', async () => {
 
   expect(warn).toHaveBeenCalledWith('telegram empty reply', { chatId: 1 });
   expect(d.client.sendRichMessage).not.toHaveBeenCalled();
-  // The draft is deliberately NOT rewritten here: what empty draft text does is
-  // unverified against the live Bot API (see the comment at the call site), so
-  // the condition stays as narrow as it was before 0.7.0.
+  // The feed stands, same as the tool-only turn above — see that test for why
+  // blanking it is worse than leaving it.
   // The exact frame, not `not.toBe('')`: `.at(-1)` is `undefined` on zero frames.
-  expect(draftFrames(d.client).at(-1)).toBe('\u200B');
+  expect(draftFrames(d.client).at(-1)).toBe(
+    '\uD83D\uDD27 `log_meal`\u2026\n\u2500\u2500\u2500\u2500\u2500\n\u200B',
+  );
 });
 
 test('emptyNotice tells the user a completed turn had nothing to say', async () => {

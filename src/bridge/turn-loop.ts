@@ -2,6 +2,10 @@ import {
   createDraftStreamer,
   type DraftConstants,
   type DraftStreamer,
+  type FeedBlock,
+  type FeedOverrides,
+  PLAN_BLOCK,
+  renderFeed,
 } from '../draft/index.ts';
 import type {
   AgentStream,
@@ -9,6 +13,7 @@ import type {
   ChatKey,
   Checkpointer,
   Logger,
+  PlanItem,
   ThreadStore,
 } from './interfaces.ts';
 import { isBlankText, sendReply } from './send.ts';
@@ -69,6 +74,23 @@ export type RunTelegramTurnOpts = {
     shouldRollback?: (ctx: RollbackContext) => boolean | Promise<boolean>;
   };
   draftConstants?: Partial<DraftConstants>;
+  /** Look of the live draft's feed — plan icons, heading, ring size, divider.
+   *  The heading defaults to English (`📋 Plan`); override it per locale. */
+  feedConstants?: FeedOverrides;
+  /** Turn one tool call into the line the user sees in the draft feed. Return a
+   *  string to show it, `null` to hide the call entirely (noisy bookkeeping
+   *  tools), or `undefined` to defer — the stream's own `label` is used, and
+   *  failing that the bare `🔧 \`name\`…`.
+   *
+   *  This is where app-specific wording lives: only the app knows that
+   *  `write_journal` should read `📝 logged: lunch, 620 kcal`. The kit ships no
+   *  table of tool names, and the `/deepagents` adapter labels only what is
+   *  universal to deepagents itself. */
+  formatTool?: (ev: {
+    name: string;
+    args: unknown;
+    label?: string;
+  }) => string | null | undefined;
   configurable?: Record<string, unknown>;
   /** Plain-text line sent to the chat when the stream errors out (model chain
    *  exhausted, graph threw). Without it the turn returns silently and the user
@@ -100,17 +122,6 @@ type RollbackTarget = {
   checkpointId: string | null;
   startedAt: number;
 };
-
-/** Skills load via progressive disclosure — the model reads
- *  `/skills/<name>/SKILL.md` with `read_file` (no dedicated tool). */
-export function skillName(name: string, args: unknown): string | null {
-  if (name !== 'read_file') return null;
-  return (
-    (args as { file_path?: string } | undefined)?.file_path?.match(
-      /\/skills\/([^/]+)\/SKILL\.md$/,
-    )?.[1] ?? null
-  );
-}
 
 export async function runTelegramTurn(
   opts: RunTelegramTurnOpts,
@@ -258,27 +269,48 @@ export async function runTelegramTurn(
     });
     draft.start();
 
-    // 6. stream. `status` is draft-only scaffolding — it is composed onto the
-    //    pushed frame but never onto `reply`, so tool narration can animate
-    //    live without ever reaching the persisted message.
+    // 6. stream. The feed is draft-only scaffolding — it is composed onto the
+    //    pushed frame but never onto `reply`, so plan and tool narration can
+    //    animate live without ever reaching the persisted message.
+    //
+    //    Append-only, and nothing is ever removed: the pre-0.9 code cleared the
+    //    tool line the moment tokens resumed, which is an edit to the middle of
+    //    the draft, and the client repaints every character of a draft whose
+    //    middle changed. Letting the lines stand costs nothing and repaints less.
     let reply = '';
-    let status = '';
+    const blocks: FeedBlock[] = [];
+    let plan: PlanItem[] = [];
     let errorMessage: string | undefined;
+    const pushFrame = () =>
+      draft?.push(renderFeed(blocks, plan, reply, opts.feedConstants));
     for await (const ev of opts.agentStream(
       { messages: [{ role: 'user', content: opts.userText }] },
       { threadId, signal: opts.signal, configurable: opts.configurable },
     )) {
       if (ev.type === 'token') {
         reply += ev.text;
-        status = ''; // the answer resumed — drop the tool line, don't stack under it
-        draft.push(reply);
+        pushFrame();
       } else if (ev.type === 'tool_start') {
-        const skill = skillName(ev.name, ev.args);
-        status =
-          skill !== null
-            ? `🧠 load_skill(\`${skill}\`)…`
-            : `🔧 \`${ev.name}\`…`;
-        draft.push(reply ? `${reply}\n\n${status}` : status);
+        // Three-way precedence, and `null` must not collapse into "no opinion":
+        // `??` would read a formatter's explicit "hide this" as a miss and fall
+        // through to the label, showing the very line it asked to suppress.
+        const custom = opts.formatTool?.({
+          name: ev.name,
+          args: ev.args,
+          label: ev.label,
+        });
+        const line =
+          custom === undefined ? (ev.label ?? `🔧 \`${ev.name}\`…`) : custom;
+        if (line !== null) {
+          blocks.push(line);
+          pushFrame();
+        }
+      } else if (ev.type === 'plan') {
+        plan = ev.items;
+        // First plan anchors its block; later ones update it in place. Pushing a
+        // second anchor would print the plan twice.
+        if (!blocks.includes(PLAN_BLOCK)) blocks.push(PLAN_BLOCK);
+        pushFrame();
       } else if (ev.type === 'error') errorMessage = ev.message;
     }
 
@@ -305,36 +337,19 @@ export async function runTelegramTurn(
     // 8. finalize + commit + send.
     draftTornDown = true;
     await draft.finalize().catch(() => {});
-    // A turn that ends on a tool call leaves the 🔧 frame standing: finalize()
-    // stops the animation, it does not blank what it last wrote. Rewrite the
-    // status-free text once, directly — the streamer is stopped by now, and its
-    // throttle gate would swallow a push this late anyway.
+    // No draft rewrite here any more, and both halves of the old one are now
+    // settled by watching a real chat (2026-08-01) rather than reasoned about:
     //
-    // What empty draft text DOES is not verified against the live Bot API: this
-    // file has claimed it clears the draft outright, while machine-spirit's
-    // channel notes record the opposite (an empty draft renders a "Thinking…"
-    // placeholder), which is why that app never sends empty text on abort. Until
-    // someone watches a real chat, the condition stays exactly as narrow as it
-    // was before 0.7.0 — `status` only. An invisible-only reply resets `status`,
-    // so such a turn keeps its stale 🔧 frame; cosmetic, pre-existing, and
-    // strictly better than a fresh "Thinking…" rendered directly above the
-    // `emptyNotice` that says the turn is over (it would also refresh the ~30s
-    // draft expiry).
+    //  - A normal message wipes every live draft in the chat the instant it
+    //    lands, so the send below clears the feed on its own. The rewrite this
+    //    replaced was one HTTP call whose only effect was to beat that by
+    //    milliseconds.
+    //  - Empty draft text does NOT clear the draft and does NOT render a
+    //    "Thinking…" placeholder — it renders an EMPTY bubble. So on the
+    //    empty-reply path, blanking the draft would swap a feed that at least
+    //    shows what the turn did for a blank box. The feed stands instead, and
+    //    `emptyNotice` (a real message) wipes it; unset, it expires in ~30s.
     const finalText = isBlankText(reply) ? '' : reply;
-    if (status) {
-      await opts.client
-        .sendMessageDraft(
-          {
-            chatId: opts.chatKey.chatId,
-            draftId: opts.draftId,
-            text: finalText,
-          },
-          opts.signal,
-        )
-        .catch((e: unknown) =>
-          log.warn('telegram draft status clear failed', { err: String(e) }),
-        );
-    }
     turnCompleted = true;
     if (finalText !== '') {
       await sendReply(

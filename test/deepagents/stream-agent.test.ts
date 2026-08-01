@@ -8,6 +8,7 @@ import { tool } from '@langchain/core/tools';
 import { createDeepAgent } from 'deepagents';
 import { expect, test } from 'vitest';
 
+import type { PlanItem } from '../../src/bridge/interfaces.ts';
 import { streamAgent } from '../../src/deepagents/stream-agent.ts';
 
 /** One streamed chunk: prose, a tool call, or both. */
@@ -127,7 +128,8 @@ async function collect(
   const out: string[] = [];
   const errors: string[] = [];
   const tools: string[] = [];
-  const toolCalls: { name: string; args: unknown }[] = [];
+  const toolCalls: { name: string; args: unknown; label?: string }[] = [];
+  const plans: PlanItem[][] = [];
   for await (const ev of streamAgent(
     agent,
     { messages: [{ role: 'user', content: 'hi' }] },
@@ -137,11 +139,12 @@ async function collect(
     if (ev.type === 'token') out.push(ev.text);
     if (ev.type === 'tool_start') {
       tools.push(ev.name);
-      toolCalls.push({ name: ev.name, args: ev.args });
+      toolCalls.push({ name: ev.name, args: ev.args, label: ev.label });
     }
+    if (ev.type === 'plan') plans.push(ev.items);
     if (ev.type === 'error') errors.push(ev.message);
   }
-  return { text: out.join(''), errors, tools, toolCalls };
+  return { text: out.join(''), errors, tools, toolCalls, plans };
 }
 
 test('root tokens reach the caller', async () => {
@@ -208,6 +211,39 @@ test('tool_start forwards the tool input as args (ev.data.input)', async () => {
   const task = toolCalls.find((c) => c.name === 'task');
   expect(task?.args).toBeDefined();
   expect(JSON.stringify(task?.args)).toContain('do the thing');
+});
+
+test('a real write_todos call arrives as a plan event, not a tool call', async () => {
+  // End-to-end through the actual graph: the built-in tool really executes, and
+  // what comes out the other side is a `plan`. The mapping itself is pinned in
+  // plan-events.test.ts; this is the wiring — that `on_tool_start` for a
+  // built-in reaches the branch at all, with its args intact.
+  const { agent } = makeAgent(undefined, [
+    [
+      {
+        call: {
+          name: 'write_todos',
+          args: {
+            todos: [
+              { content: 'find', status: 'in_progress' },
+              { content: 'count', status: 'pending' },
+            ],
+          },
+        },
+      },
+    ],
+    [{ text: 'DONE' }],
+  ]);
+  const { plans, tools, text } = await collect(agent);
+
+  expect(plans).toEqual([
+    [
+      { text: 'find', status: 'active' },
+      { text: 'count', status: 'pending' },
+    ],
+  ]);
+  expect(tools).not.toContain('write_todos');
+  expect(text).toBe('DONE');
 });
 
 test('abort yields a single canceled error event', async () => {
