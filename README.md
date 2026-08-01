@@ -107,7 +107,9 @@ async function call(method: string, body: unknown, signal?: AbortSignal) {
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new TelegramApiError(res.status, j.description);
+    // Pass `parameters` through: on a 429 the draft streamer backs off by its
+    // `retry_after` instead of counting the throttle as a transport failure.
+    throw new TelegramApiError(res.status, j.description, j.parameters);
   }
 }
 ```
@@ -387,8 +389,10 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
 
 **Errors**
 
-- `TelegramApiError` — throw this from `BotClient` primitives (carries `error_code`).
+- `TelegramApiError` — throw this from `BotClient` primitives (carries `error_code`, `description`
+  and the Bot API's `parameters`, whose `retry_after` the draft streamer honours on a `429`).
 - `isBadRequest(err)` — true only for a deterministic `400` (rejected, safe to retry on a degraded path).
+- `isRateLimited(err)` — true for a `429` (throttled, not rejected — wait `parameters.retry_after`).
 
 ### Optional entry — `telegram-agent-kit/deepagents`
 

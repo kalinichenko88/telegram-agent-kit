@@ -300,6 +300,74 @@ describe('DraftStreamer', () => {
     expect(s.drafts.length).toBe(2 + DRAFT_MAX_FAILURES - 1);
   });
 
+  test('a 429 backs off for retry_after without burning the failure budget', async () => {
+    const s = setup();
+    s.streamer.push('a'); // draft #1 at t=0
+    s.rejectDraft(
+      new TelegramApiError(429, 'Too Many Requests', {
+        retry_after: 2,
+      }),
+    );
+    await s.settle();
+    s.advance(1000); // inside the retry_after window
+    s.streamer.push('ab');
+    s.tick();
+    expect(s.drafts.length).toBe(1); // silent while backing off
+    s.advance(1500); // past retry_after
+    s.streamer.push('abc');
+    expect(s.drafts.length).toBe(2); // resumes on its own
+    // The 429 must NOT have counted toward DRAFT_MAX_FAILURES.
+    for (let i = 0; i < DRAFT_MAX_FAILURES; i += 1) {
+      s.rejectDraft();
+      await s.settle();
+      s.advance(300);
+      s.streamer.push(`x${i}`);
+    }
+    expect(s.drafts.length).toBe(2 + DRAFT_MAX_FAILURES - 1);
+  });
+
+  test('keepalive stays silent during a 429 backoff', async () => {
+    const s = setup();
+    s.streamer.push('a');
+    s.resolveDraft(); // lastSent set → keepalive armed
+    await s.settle();
+    s.advance(300);
+    s.streamer.push('ab'); // draft #2
+    s.rejectDraft(
+      new TelegramApiError(429, 'Too Many Requests', {
+        retry_after: 30,
+      }),
+    );
+    await s.settle();
+    const typingBefore = s.typing.length;
+    s.advance(20000); // past the keepalive window, inside the backoff
+    s.tick();
+    expect(s.drafts.length).toBe(2); // no keepalive write while throttled
+    // The typing action spends the same per-chat budget — heartbeating a
+    // throttled chat would extend the very window we are waiting out.
+    expect(s.typing.length).toBe(typingBefore);
+  });
+
+  test('a 429 without a usable retry_after still buys a real pause', async () => {
+    for (const parameters of [
+      undefined,
+      { retry_after: -5 },
+      { retry_after: 'soon' as unknown as number },
+    ]) {
+      const s = setup();
+      s.streamer.push('a');
+      s.rejectDraft(new TelegramApiError(429, 'Too Many Requests', parameters));
+      await s.settle();
+      s.advance(999); // inside the 1s floor
+      s.streamer.push('ab');
+      s.tick();
+      expect(s.drafts.length).toBe(1); // never a 300ms retry storm
+      s.advance(1); // floor elapsed
+      s.streamer.push('abc');
+      expect(s.drafts.length).toBe(2);
+    }
+  });
+
   test('keepalive re-sends as plain after a 400 rich->plain flip', async () => {
     const s = setup({ rich: true });
     s.streamer.push(TABLE); // rich draft #1
