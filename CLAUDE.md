@@ -48,7 +48,9 @@ all three layers (but not `/deepagents`, which is a separate package entry point
   (`DEFAULT_DRAFT_CONSTANTS`), overridable per call.
 - **Turn-loop bridge (`src/bridge/`):** `runTelegramTurn` orchestrates one turn
   (`turn-loop.ts`) and `sendReply` orchestrates the final send (`send.ts`). The four
-  injectable interfaces are defined in `interfaces.ts`.
+  injectable interfaces are defined in `interfaces.ts`. `createTurnQueue`
+  (`turn-queue.ts`) serializes turns per `ChatKey` — the turn loop itself holds no
+  state, so overlapping turns on one thread corrupt each other.
 - **`/deepagents` (`src/deepagents/`, optional subpath):** `toAgentStream` / `streamAgent`
   adapt a deepagents/langgraph agent to the kit's `AgentStream` contract. Shipped as a
   separate entry (`telegram-agent-kit/deepagents`) so the core never pulls in langchain.

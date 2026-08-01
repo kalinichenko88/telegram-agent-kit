@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **`createTurnQueue()` serializes turns per chat, and is now the supported way to
+  drive them.** Two messages landing back to back used to start two turns against
+  one thread with nothing between them: the second turn's `snapshot` ran on top of
+  the first one's half-finished state (so its rollback target rewound into someone
+  else's turn), both animated the chat's single live draft, and a rollback in
+  either erased the other's work. The kit holds no state between turns by design,
+  so the fix is a queue the caller owns rather than a map hidden inside the turn
+  loop — which would also have been per-process, unopt-out-able, and a lie about
+  where the state lives. Keyed by the whole `ChatKey`, like the `ThreadStore`, so
+  two bots over one chat id never wait on each other. A rejecting task does not
+  wedge the turns behind it (the stored chain tail swallows the outcome; the caller
+  still gets its own rejection), and drained chains are dropped from the map so a
+  bot serving many chats does not retain one promise per chat it ever saw. No
+  cancellation policy: a new message waits for the running turn, never supersedes
+  it — superseding means aborting mid-flight, and an aborted turn is rolled back
+  unconditionally, erasing tool writes that already landed.
 - **The live draft carries a feed: the agent's plan with per-step progress, plus a
   line per tool call, above the growing answer.** New `RenderEvent` variant
   `plan` (`{ items: PlanItem[] }`, the whole list every time — no delta
