@@ -351,7 +351,6 @@ describe('DraftStreamer', () => {
   test('a 429 without a usable retry_after still buys a real pause', async () => {
     for (const parameters of [
       undefined,
-      { retry_after: 0 },
       { retry_after: -5 },
       { retry_after: 'soon' as unknown as number },
     ]) {

@@ -55,7 +55,7 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
   let inFlight: Promise<void> | null = null;
   let inFlightController: AbortController | null = null;
   let consecutiveFailures = 0;
-  let backoffUntil = 0; // 429: no write (content or keepalive) before this
+  let backoffUntil = 0; // 429: no write, keepalive or typing before this
   let disabled = false;
   let richMode = deps.rich; // turn-scoped: flips to plain on a 400
   let stopped = false;
@@ -91,12 +91,9 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
           // ~once per throttleMs, so they are the first thing to hit a rate
           // limit — counting a 429 as a failure kills the draft for the whole
           // turn over a delay the API already told us how to ride out.
-          // retry_after is seconds and comes verbatim from the caller's
-          // transport (untyped Bot API JSON), so a missing / zero / negative /
-          // non-numeric value must still buy a real pause: without one the
-          // draft would re-attempt every throttleMs against a throttled chat
-          // for the whole turn, and a 429 no longer spends the budget that
-          // used to stop it.
+          // retry_after (seconds) is untyped caller JSON; floor it at 1s, or a
+          // bad value means no pause at all — and nothing left to stop the
+          // retries, since a 429 no longer spends the budget that used to.
           const retryAfter = Math.max(
             1,
             Number(err.parameters?.retry_after) || 1,
@@ -156,13 +153,15 @@ export function createDraftStreamer(deps: DraftStreamerDeps): DraftStreamer {
 
   function tick(): void {
     maybeFlush();
-    const t = now();
     // The typing action spends the same per-chat budget as a draft write, so
     // it observes the 429 backoff too — heartbeating a chat that just told us
-    // to wait only extends the throttle we are riding out. The bubble lapses
-    // for the backoff window; that is the honest state of the turn.
-    if (stopped || t < backoffUntil) return;
-    if (t - lastTypingAt >= k.typingHeartbeatMs) {
+    // to wait only extends the throttle we are riding out.
+    const t = now();
+    if (
+      !stopped &&
+      t >= backoffUntil &&
+      t - lastTypingAt >= k.typingHeartbeatMs
+    ) {
       client.sendChatAction({ chatId }).catch(() => {});
       lastTypingAt = t;
     }
