@@ -84,6 +84,10 @@ These are intentional and enforced by tests — preserve them when editing.
   rich → classic (`sendRichMessage` → HTML `sendMessage`), HTML → plain text, and
   photo → text. Draft sends additionally flip rich → plain **for the rest of the turn**
   on a 400 without spending the `maxFailures` budget.
+- **A 429 is not a failure.** `isRateLimited(err)` (429) means throttled, not rejected:
+  the draft streamer backs off until `parameters.retry_after` elapses — silencing the
+  keepalive too — and does **not** spend the `maxFailures` budget. Requires the caller's
+  transport to pass the Bot API `parameters` into `TelegramApiError`.
 - **`runTelegramTurn` never throws out** — every failure path is caught and logged.
   Ordering matters: snapshot happens only *after* `preStream` (so a skipped turn leaves
   no rollback target); rollback fires only if a snapshot was taken and the turn did not
