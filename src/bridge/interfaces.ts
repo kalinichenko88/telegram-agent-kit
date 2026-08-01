@@ -35,13 +35,26 @@ export type BotClient = {
   ): Promise<void>;
 };
 
+/** One step of the agent's plan. `active` is the step being worked on now; the
+ *  kit renders it distinctly and strikes through `done` ones. */
+export type PlanItem = {
+  text: string;
+  status: 'pending' | 'active' | 'done';
+};
+
 export type RenderEvent =
   | { type: 'token'; text: string }
-  /** The agent started a tool call. Surfaced in the live draft as a transient
-   *  status line and NEVER folded into the reply — see runTelegramTurn. `args`
-   *  carries the tool input so the draft can relabel specific calls (e.g. a
-   *  skill load, which rides on `read_file` — see skillName in turn-loop.ts). */
-  | { type: 'tool_start'; name: string; args: unknown }
+  /** The agent started a tool call. Appended to the live draft's feed and NEVER
+   *  folded into the reply — see runTelegramTurn. `args` carries the tool input
+   *  so a `formatTool` can render specific calls in the app's own words. `label`
+   *  is the stream's own suggestion (the `/deepagents` adapter sets it for skill
+   *  loads); `formatTool` outranks it, and both outrank the bare tool name. */
+  | { type: 'tool_start'; name: string; args: unknown; label?: string }
+  /** The agent rewrote its plan. Carries the WHOLE list every time, never a
+   *  delta — that is the shape `write_todos` and its kin already emit, so
+   *  reconciling deltas would be work in service of nothing. The plan occupies
+   *  one block in the draft feed, anchored where it first appeared. */
+  | { type: 'plan'; items: PlanItem[] }
   | { type: 'error'; message: string };
 
 export type StreamInput = { messages: { role: 'user'; content: string }[] };

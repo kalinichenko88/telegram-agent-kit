@@ -157,25 +157,89 @@ You implement these; the kit drives them.
 | `Checkpointer` | `{ snapshot(threadId), rollback(threadId, id) }`                       | Per-thread snapshot/rollback for clean recovery on a failed turn. |
 | `ThreadStore`  | `{ resolve(chatKey, now), touch(chatKey, now) }`                      | Maps `{ chatId, agentId }` to a thread id (so two bots over one chat id don't collide). |
 
-A `RenderEvent` is one of `token`, `tool_start` or `error`. `token` text is appended to
-the live draft *and* to the reply that gets sent. `tool_start` shows a transient
-`🔧 \`name\`…` line under the draft so the user sees which tool is running instead of a
-frozen draft — it is cleared by the next token and **never** becomes part of the sent
-message. A skill load (a `read_file` on `/skills/<name>/SKILL.md`, how deepagents load
-skills via progressive disclosure) is relabelled `🧠 load_skill(\`name\`)…` instead. An
-`error` rolls the turn back (unless you veto it — see below), logs the message, and — if
-you pass `errorNotice` — tells the user in the chat instead of going silent.
+A `RenderEvent` is one of `token`, `tool_start`, `plan` or `error`. `token` text is
+appended to the live draft *and* to the reply that gets sent. `tool_start` and `plan`
+feed the draft only, and **never** become part of the sent message. An `error` rolls the
+turn back (unless you veto it — see below), logs the message, and — if you pass
+`errorNotice` — tells the user in the chat instead of going silent.
 
 A turn can also *complete* with nothing to say: it ended on a tool call, or the model
 answered with invisible characters only (a bare U+200B counts as text for `trim()` but is
 empty to the Bot API). Both are treated as an empty reply — logged, and — if you pass
-`emptyNotice` — said out loud. A turn that ended on a tool call also gets its draft
-cleared, so no orphaned `🔧` line is left standing; an invisible-only reply leaves the
-draft as it was. The same check guards `sendText` itself, so a *direct* caller (a
-background job handing model output to `sendReply`) skips the send — with a
-`telegram blank send skipped` warning — instead of throwing a Bot API 400. That notice is a **separate** line from
+`emptyNotice` — said out loud. The draft is **not** blanked in either case: empty draft
+text renders an empty bubble rather than clearing the draft, so the feed is left standing
+as the only record of what the turn did, and it expires with the draft in ~30s (or the
+moment `emptyNotice` lands, since any real message wipes every live draft in the chat).
+The same check guards `sendText` itself, so a *direct* caller (a background job handing
+model output to `sendReply`) skips the send — with a `telegram blank send skipped`
+warning — instead of throwing a Bot API 400. That notice is a **separate** line from
 `errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
 stands, and "it broke" would invite a re-send that repeats the write.
+
+## The draft feed: plan and tool progress
+
+While a turn runs, the draft shows a **feed** above the growing answer — the agent's plan
+with per-step progress, plus a line per tool call:
+
+```
+🧠 load_skill(`nutrition`)…
+📋 Plan
+✔️ f̶i̶n̶d̶ ̶t̶h̶e̶ ̶w̶e̶e̶k̶'̶s̶ ̶e̶n̶t̶r̶i̶e̶s̶
+🔘 total the calories
+⬜ compare against the target
+🔧 `query_journal`…
+📝 logged: lunch, 620 kcal
+─────
+Over the week you ate 14,200 kcal —
+```
+
+Nothing here reaches the sent message: the final `sendMessage` carries only the reply, and
+a real message wipes every live draft in the chat, so the feed disappears on its own.
+
+Three properties are load-bearing, and all three were settled by watching a live chat
+rather than reasoned about:
+
+- **The reply is always last.** The client repaints every character of a draft whose
+  middle changed, so a streaming token must be a pure append to the tail. Put the feed
+  below the answer and every token repaints the whole draft.
+- **The feed is append-only, and the plan is a block *in* it** — anchored where the agent
+  first wrote it, not pinned as a header. A header reorders the feed the instant the plan
+  arrives (a tool line that was on top jumps under it); anchoring it means nothing ever
+  moves. Repaints then cost one plan status flip or one tool call, not one token.
+- **Only one live draft exists per chat.** Writing with a second `draft_id` *replaces* the
+  bubble rather than adding one, so plan and answer share a single draft. (The MTProto
+  docs suggest otherwise; the Bot API does not behave that way.)
+
+With `telegram-agent-kit/deepagents` this needs **no wiring at all** — the adapter turns
+deepagents' built-in `write_todos` into `plan` events and labels skill loads (a `read_file`
+on `/skills/<name>/SKILL.md`). Two optional knobs shape the rest:
+
+```ts
+await runTelegramTurn({
+  // …
+  feedConstants: {
+    planTitle: '📋 План',              // the heading defaults to English
+    icons: { active: '⏳' },           // merged key by key, not replaced wholesale
+    maxLines: 5,                       // status lines kept; the plan is never evicted
+  },
+  // Your tools in your words. `null` hides a call, `undefined` defers to the
+  // stream's own label and then to the bare `🔧 \`name\`…`.
+  formatTool: ({ name, args }) =>
+    name === 'write_journal'
+      ? `📝 logged: ${(args as { meal: string }).meal}`
+      : name === 'read_state'
+        ? null
+        : undefined,
+});
+```
+
+Everything else — `renderFeed`, `strikeThrough`, `PLAN_BLOCK`, `DEFAULT_FEED_CONSTANTS` —
+is exported if you want to render a feed somewhere else, but no turn needs it.
+
+If your `AgentStream` is not deepagents, emit `plan` events yourself
+(`{ type: 'plan', items: [{ text, status: 'pending' | 'active' | 'done' }] }`, the whole
+list every time — the kit does not reconcile deltas) and optionally set `label` on a
+`tool_start` to suggest a line for it.
 
 ## Conditional rollback
 
@@ -253,6 +317,11 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
 - `createDraftStreamer(deps)` → `{ start(), push(fullText), finalize(), abort() }`.
 - `DEFAULT_DRAFT_CONSTANTS` / `DraftConstants` — overridable tunables (throttle, keepalive,
   typing heartbeat, preview cap, drain, …).
+- `renderFeed(blocks, plan, reply, overrides?)` — compose one draft frame (see
+  [The draft feed](#the-draft-feed-plan-and-tool-progress)). `PLAN_BLOCK` marks the plan's
+  slot in `blocks`; `strikeThrough(text)` is the U+0336 overlay used on done steps, applied
+  per grapheme so emoji sequences survive. `DEFAULT_FEED_CONSTANTS` / `FeedConstants` /
+  `FeedOverrides` are the knobs.
 
 **Bridge**
 
@@ -263,11 +332,12 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
   omit it and the user just sees the draft stop, which reads as being ignored. Pass
   `emptyNotice` for the same reason on a turn that completed with no reply text, and
   `keptNotice` for a failed turn your `hooks.shouldRollback` kept (see
-  [Conditional rollback](#conditional-rollback)).
+  [Conditional rollback](#conditional-rollback)). `feedConstants` and `formatTool` shape the
+  draft feed (see [The draft feed](#the-draft-feed-plan-and-tool-progress)).
 - `sendReply(client, chatId, reply, opts, signal?)` / `sendText(...)` — the send path on its own.
   `opts` is `{ rich: boolean, log: Logger }`, with the same `rich` semantics as above.
-- Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `ChatKey`, `Logger`,
-  `TurnContext`, `RollbackContext`.
+- Types: `BotClient`, `AgentStream`, `Checkpointer`, `ThreadStore`, `RenderEvent`, `PlanItem`,
+  `ChatKey`, `Logger`, `TurnContext`, `RollbackContext`.
 
 **Errors**
 
@@ -281,6 +351,10 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
   `thread_id`, `thread_ts`, `checkpoint_id`, `checkpoint_ns`, `checkpoint_map`, and `run_id` — plus any
   `__pregel_*` LangGraph internal-execution key — are stripped so the kit retains full control over
   checkpoint routing and execution.
+- Turns deepagents' built-in `write_todos` into `plan` events and labels a skill load (a `read_file`
+  on `/skills/<name>/SKILL.md`, how deepagents load skills via progressive disclosure) as
+  `🧠 load_skill(\`name\`)…`. This is the **only** place in the kit that knows any tool name; the core
+  turn loop knows none. `planItems`, `skillName` and `toolArgs` are exported for reuse.
 - `streamAgent(agent, input, config, signal?)` — lower-level event stream if you need direct control.
   Yields tokens from the **root** agent only: a delegated agent (a `subagents` entry, or the built-in
   `task` tool) runs its own model node and LangChain replays its events into the parent stream, so

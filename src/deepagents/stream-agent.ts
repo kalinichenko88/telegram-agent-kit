@@ -1,7 +1,86 @@
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type { createDeepAgent } from 'deepagents';
 
-import type { RenderEvent, StreamInput } from '../bridge/interfaces.ts';
+import type {
+  PlanItem,
+  RenderEvent,
+  StreamInput,
+} from '../bridge/interfaces.ts';
+
+/** LangGraph's `on_tool_start` reports the call's arguments in `data.input`, and
+ *  that shape is NOT stable: usually the parsed argument object, but
+ *  `{ input: "<json string>" }` when the call reaches the tool node as an
+ *  unparsed argument string (reproduced against deepagents 1.10). Everything
+ *  downstream — `planItems`, `skillName`, and the caller's own `formatTool` —
+ *  reads named fields off those arguments, so on the string shape they all
+ *  silently see nothing and fall back to a bare `🔧 name…`.
+ *
+ *  Normalize once, here, where every consumer routes through. Unwrapping is
+ *  deliberately conservative: it only applies when the inner string parses to a
+ *  plain OBJECT, so a tool that genuinely takes a string parameter named `input`
+ *  keeps its own arguments untouched. */
+export function toolArgs(input: unknown): unknown {
+  const inner = (input as { input?: unknown } | undefined)?.input;
+  if (typeof inner !== 'string') return input;
+  try {
+    const parsed: unknown = JSON.parse(inner);
+
+    return typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? parsed
+      : input;
+  } catch {
+    return input;
+  }
+}
+
+/** Skills load via progressive disclosure — the model reads
+ *  `/skills/<name>/SKILL.md` with `read_file`, there is no dedicated tool. Lives
+ *  here, not in the core turn loop: `read_file` and this path layout are
+ *  deepagents conventions, and the core is meant to know no tool names at all. */
+export function skillName(name: string, args: unknown): string | null {
+  if (name !== 'read_file') return null;
+
+  return (
+    (args as { file_path?: string } | undefined)?.file_path?.match(
+      /\/skills\/([^/]+)\/SKILL\.md$/,
+    )?.[1] ?? null
+  );
+}
+
+const TODO_STATUS: Record<string, PlanItem['status']> = {
+  completed: 'done',
+  in_progress: 'active',
+  pending: 'pending',
+};
+
+/** deepagents' built-in `write_todos` IS the plan: it takes the whole list every
+ *  call (`{ todos: [{ content, status }] }`, verified against deepagents 1.10),
+ *  which is exactly the shape of a `plan` event. Anything unrecognized returns
+ *  null and stays an ordinary tool call, so a hand-rolled todo tool with another
+ *  shape degrades to a `🔧 write_todos…` line rather than an empty plan. */
+export function planItems(name: string, args: unknown): PlanItem[] | null {
+  if (name !== 'write_todos') return null;
+  const todos = (args as { todos?: unknown } | undefined)?.todos;
+  if (!Array.isArray(todos)) return null;
+  const items = todos.flatMap((t): PlanItem[] => {
+    const { content, status } = (t ?? {}) as {
+      content?: unknown;
+      status?: unknown;
+    };
+    if (typeof content !== 'string') return [];
+
+    return [
+      {
+        text: content,
+        status: TODO_STATUS[String(status)] ?? 'pending',
+      },
+    ];
+  });
+
+  return items.length > 0 ? items : null;
+}
 
 type Agent = ReturnType<typeof createDeepAgent>;
 
@@ -81,10 +160,24 @@ export async function* streamAgent(
         // run on the `tools` node, not `model_request`, so reusing that check
         // would drop every tool call. Nesting alone is the filter.
         if (isNested(ev)) continue;
+        const name = ev.name ?? 'unknown';
+        const args = toolArgs(ev.data?.input);
+
+        // The plan is a tool call only by accident of transport — surface it as
+        // what it is, so the draft can render progress instead of one more
+        // `🔧 write_todos…` line that says nothing about what changed.
+        const items = planItems(name, args);
+        if (items !== null) {
+          yield { type: 'plan', items };
+          continue;
+        }
+
+        const skill = skillName(name, args);
         yield {
           type: 'tool_start',
-          name: ev.name ?? 'unknown',
-          args: ev.data?.input,
+          name,
+          args,
+          ...(skill !== null ? { label: `🧠 load_skill(\`${skill}\`)…` } : {}),
         };
       }
     }

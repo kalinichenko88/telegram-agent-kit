@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+- **The live draft carries a feed: the agent's plan with per-step progress, plus a
+  line per tool call, above the growing answer.** New `RenderEvent` variant
+  `plan` (`{ items: PlanItem[] }`, the whole list every time — no delta
+  reconciliation, because `write_todos` and its kin already emit the whole list),
+  and `tool_start` gains an optional `label`. Done steps are struck through with
+  U+0336 rather than `<s>` + `parse_mode`: the draft primitive is plain text, and
+  taking it to HTML would mean escaping the model's reply inside the same frame
+  and adding a 400 fallback for a malformed one — a whole failure path bought for
+  one visual effect. The strike is applied per **grapheme** (`Intl.Segmenter`), so
+  it neither severs a surrogate pair nor lands between an emoji base and its ZWJ.
+- **Only one live draft exists per chat, and that shaped the whole design.**
+  Measured against a live chat 2026-08-01: writing with a second `draft_id`
+  *replaces* the bubble instead of appending one, contradicting the MTProto docs'
+  "variable number of live drafts". So plan and answer share a single draft, and
+  the layout is what makes it bearable. **The reply is always last** — the client
+  repaints every character of a draft whose middle changed, so a streaming token
+  has to be a pure append to the tail. **The feed is append-only, and the plan is
+  a block *in* it**, anchored where the agent first wrote it rather than pinned as
+  a header: a header reorders the feed the instant the plan arrives, and a tool
+  line that was on top visibly jumps under it. Repaints now cost one plan status
+  flip or one tool call, never one token.
+- **The core no longer knows a single tool name.** `skillName` moved out of
+  `turn-loop.ts` into `/deepagents`, which also turns the built-in `write_todos`
+  into `plan` events. App-specific wording lives in the new `formatTool` option —
+  return a string to show it, `null` to hide a noisy call, `undefined` to defer to
+  the stream's `label` and then to the bare `🔧 \`name\`…`. `null` is checked
+  explicitly rather than through `??`, which would have read an explicit "hide
+  this" as a miss and printed the very line the formatter suppressed.
+- **`/deepagents` normalizes tool arguments, fixing a bug that predates the
+  feed.** LangGraph reports `on_tool_start` args in `data.input`, and that shape
+  is not stable: usually the parsed object, but `{ input: "<json string>" }` when
+  the call reaches the tool node unparsed. On that shape `skillName` silently saw
+  nothing and every skill load fell back to `🔧 read_file…`. `toolArgs` unwraps it
+  once at the yield site, so `planItems`, `skillName` and the caller's
+  `formatTool` all get real arguments. Unwrapping applies only when the inner
+  string parses to a plain object, so a tool whose own parameter is a string named
+  `input` keeps its arguments.
+- **The final draft rewrite is gone, and both halves of its rationale are now
+  measured rather than guessed.** A real message wipes every live draft in the
+  chat the moment it lands, so the reply send clears the feed by itself. And empty
+  draft text does **not** clear the draft and does **not** render a "Thinking…"
+  placeholder (as the aiogram docs claim) — it renders an empty bubble, so
+  blanking the draft on an empty turn traded a feed that at least says what the
+  turn did for a blank box. The feed now stands until `emptyNotice` lands or the
+  draft expires.
+- **The tool line is no longer deleted when tokens resume.** That deletion edited
+  the middle of the draft on every return to prose, which is precisely what
+  triggers a full repaint — so the append-only feed repaints *less* than 0.8.0 did.
+- Tuning via `feedConstants` (`planTitle`, `icons` merged key by key rather than
+  replaced wholesale, `maxLines`, `separator`). The ring never evicts the plan
+  block: dropping it would make the plan vanish on exactly the tool-heavy turn
+  where progress matters most. `renderFeed`, `strikeThrough`, `PLAN_BLOCK` and
+  `DEFAULT_FEED_CONSTANTS` are exported, but no turn needs them.
+
 ## 0.8.0 — 2026-07-31
 
 - **The rollback of a failed turn can be vetoed: `hooks.shouldRollback`.** Rolling
