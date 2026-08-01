@@ -1,7 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-08-01
 
+- **A `429` no longer kills the draft — it backs off by `retry_after`.** Throttling
+  is not rejection: the transport is alive and the API said how long to wait.
+  Before, a `429` fell into the draft streamer's generic error branch and spent the
+  `maxFailures` budget — three in a row and the draft was off for the rest of the
+  turn. `TelegramApiError` now carries the Bot API's `parameters`, and
+  `isRateLimited` sits next to `isBadRequest`. During the backoff window the draft
+  goes quiet **including the keepalive and the typing heartbeat** — both spend the
+  same per-chat budget, so hammering a chat that just asked for a pause only
+  extends the window being waited out — and the failure budget is untouched. The
+  wait has a **1s floor**: `retry_after` arrives from the caller's untyped JSON, and
+  `0` / negative / non-numeric produced a deadline already in the past, which — now
+  that a `429` no longer spends `maxFailures` — degraded into a retry every 300ms
+  for the whole turn, worse than before the fix. Requires the caller's transport to
+  pass the Bot API `parameters` into `TelegramApiError` (README updated). Draft path
+  only: in `send.ts` a `429` is still a non-400 and propagates. Closes #16.
 - **`createTurnQueue()` serializes turns per chat, and is now the supported way to
   drive them.** Two messages landing back to back used to start two turns against
   one thread with nothing between them: the second turn's `snapshot` ran on top of
