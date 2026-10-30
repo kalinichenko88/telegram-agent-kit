@@ -5,9 +5,10 @@
 
 ## Context
 
-The code in `src/` writes a one-expression arrow function with an implicit
-return, and a one-statement `if` on one line with no braces, for example
-`src/format/md-to-html.ts:11-15`, `src/bridge/turn-loop.ts:221-222`,
+The code in `src/` writes a one-expression callback with an implicit return,
+as in `src/deepagents/to-agent-stream.ts:32`,
+`src/deepagents/stream-agent.ts:114` and `src/draft/feed.ts:56`, and a
+one-statement `if` on one line with no braces, as in
 `src/draft/draft-streamer.ts:140` and `src/bridge/turn-queue.ts:53`. The
 `kalinichenko:typescript-conventions` rule "Bodies are braced and expanded"
 forbids both. Biome's `recommended` set, which the project runs, does not

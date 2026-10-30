@@ -5,25 +5,27 @@
 
 ## Context
 
-A source file in `src/` puts its module-level constants and private helpers
-first and its exports after them. `src/format/md-to-html.ts`,
-`src/format/rich.ts`, `src/draft/draft-streamer.ts`, `src/bridge/send.ts`,
-`src/bridge/turn-loop.ts` and the rest of `src/` follow this order. The
+A source file in `src/` declares each module-level constant and private
+helper above the first code that uses it. So a file reads bottom-up: its
+main export comes after what it calls. In a file with several exports, the
+helpers of a later export sit between the exports, as in
+`src/bridge/send.ts` (exports at `:41`, `:119`, `:181`) and
+`src/format/rich.ts` (exports at `:163`, `:221`, `:255`, `:361`). The
 `kalinichenko:typescript-conventions` rule "Files are kebab-case, one entity
 per file" sets the opposite order: imports, then the primary export, then the
 helpers it uses.
 
 ## Options considered
 
-- Keep the order of the code: helpers and constants above the exports.
+- Keep the order of the code: each helper and constant above its first user.
 - Follow the convention: move the primary export to the top of each file.
 
 ## Decision
 
-We will keep the order of the code. A file in `src/` opens with its imports,
-then its module-level constants and private helpers, then its exports. This
-ADR replaces the intra-file order of the `typescript-conventions` rule "Files
-are kebab-case, one entity per file" in this project.
+We will keep the order of the code. In a file in `src/`, a module-level
+constant or private helper is declared above the first code that uses it.
+This ADR replaces the intra-file order of the `typescript-conventions` rule
+"Files are kebab-case, one entity per file" in this project.
 
 ## Consequences
 
