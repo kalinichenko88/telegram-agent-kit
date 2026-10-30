@@ -225,9 +225,10 @@ Review only. The code comments at the named places are the spec.
 ## Cross-cutting concerns
 
 - **Failure classification** lives in `src/errors.ts`. 400 means rejected, not
-  delivered: safe to retry on a degraded path. 429 means throttled: wait, never
-  a failure. Anything else propagates from the send path and counts toward
-  `maxFailures` in the draft.
+  delivered: safe to retry on a degraded path. 429 means throttled: the draft
+  waits and does not count it as a failure (I-16). In the send path, a 429 and
+  any other non-400 error propagate; in the draft, any other error counts
+  toward `maxFailures`.
 - **Logging** goes through the injected `Logger` (I-9).
 - **Cancellation** is the caller's `AbortSignal`. `runTelegramTurn` forwards
   it to the agent and to the final send. The draft streamer does not take it:
