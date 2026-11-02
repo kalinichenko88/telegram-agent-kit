@@ -14,7 +14,7 @@ types sit beside the function: `RunTelegramTurnOpts`, `TurnContext` and
 `FeedBlock` and `FeedOverrides` in `src/draft/feed.ts`. A source file
 exports several functions and types that do one job together
 (`src/bridge/send.ts`, `src/format/rich.ts`, `src/draft/feed.ts`). The
-`kalinichenko:typescript-conventions` rules "Files are kebab-case, one entity
+`craft:typescript-conventions` rules "Files are kebab-case, one entity
 per file" and "A shared type is a model in `models/`" set one entity per file
 and one shared type per file in a `models/` folder.
 

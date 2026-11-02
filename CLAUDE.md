@@ -10,7 +10,7 @@ Telegram. Its modules, layers, patterns and invariants are in
 
 Before a spec, a plan or the first edit of a new feature, read
 `docs/ARCHITECTURE.md`. At the start of a new feature, and for a decision, load
-`kalinichenko:architecture`.
+`craft:architecture`.
 
 ## Commands
 

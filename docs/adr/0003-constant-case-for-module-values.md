@@ -12,7 +12,7 @@ not a function, also when the module makes the value when it loads:
 `src/draft/feed.ts`, `RICH_MEDIA_RE = new RegExp(…)` in `src/format/rich.ts`,
 and `NOOP_LOG` (an object of no-op functions) in `src/bridge/turn-loop.ts`.
 A module-level function is camelCase: `escapeHtml`, `isWord`,
-`defaultDelay`. The `kalinichenko:typescript-conventions` rule "A constant's
+`defaultDelay`. The `craft:typescript-conventions` rule "A constant's
 name is CONSTANT_CASE" gives CONSTANT_CASE only to data written out in the
 code, and camelCase to a value made at run time and to an object of
 functions.

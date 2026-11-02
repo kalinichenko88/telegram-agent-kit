@@ -11,7 +11,7 @@ main export comes after what it calls. In a file with several exports, the
 helpers of a later export sit between the exports, as in
 `src/bridge/send.ts` (exports at `:41`, `:119`, `:181`) and
 `src/format/rich.ts` (exports at `:163`, `:221`, `:255`, `:361`). The
-`kalinichenko:typescript-conventions` rule "Files are kebab-case, one entity
+`craft:typescript-conventions` rule "Files are kebab-case, one entity
 per file" sets the opposite order: imports, then the primary export, then the
 helpers it uses.
 
