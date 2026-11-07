@@ -244,8 +244,8 @@ Review only. The code comments at the named places are the spec.
   cancelled turn skips the `shouldRollback` veto (I-18).
 - **Unicode safety.** Text is cut on UTF-16 code units with a surrogate guard
   (`src/format/chunk.ts`), decorated per grapheme (`src/draft/feed.ts`,
-  `Intl.Segmenter`), and judged blank by Unicode properties
-  (`src/bridge/send.ts`).
+  `Intl.Segmenter`), and judged blank by Unicode properties, once for the
+  whole reply and once for each chunk (`src/bridge/send.ts`).
 
 ## ADRs
 
