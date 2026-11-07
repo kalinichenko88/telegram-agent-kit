@@ -50,7 +50,7 @@ CI runs these steps in this order on Node 20, 22 and 24
 ```sh
 npm run lint
 npm run typecheck
-npm run build       # before test: the /deepagents test reads dist/
+npm run build       # before test
 npm test
 ```
 
@@ -73,5 +73,9 @@ CI also builds and runs the tests on Bun.
 - A commit subject and a PR title are `type: sentence` or `type(scope): sentence`,
   in the imperative mood: `fix(format): keep text chunking moving`. The types are
   `feat`, `fix`, `refactor`, `docs`, `test`, `ci` and `chore`.
-- A pull request merges as one squash commit. Its subject is the PR title.
+- A breaking change adds `!` after the type, as `feat!: …`, or a
+  `BREAKING CHANGE:` footer. The release reads these markers to choose the
+  version.
+- A pull request merges as one squash commit. Give the PR title the same shape
+  as a commit subject: the squash commit takes one of them as its subject.
 - Write everything on GitHub in English: commits, pull requests, issues and comments.

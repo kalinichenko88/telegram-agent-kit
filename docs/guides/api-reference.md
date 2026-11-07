@@ -59,7 +59,7 @@
 - Turns `write_todos` (langchain's todo-list middleware) into `plan` events and labels a skill load (a `read_file`
   on `/skills/<name>/SKILL.md`, how deepagents load skills via progressive disclosure) as
   `🧠 load_skill(\`name\`)…`. This is the **only** place in the kit that knows any tool name; the core
-  turn loop knows none. `planItems`, `skillName` and `toolArgs` are exported for reuse.
+  turn loop knows none.
 - `streamAgent(agent, input, config, signal?)` — lower-level event stream if you need direct control.
   Yields tokens from the **root** agent only: a delegated agent (a `subagents` entry, or the built-in
   `task` tool) runs its own model node and LangChain replays its events into the parent stream, so

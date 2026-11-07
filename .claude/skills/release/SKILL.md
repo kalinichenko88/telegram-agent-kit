@@ -49,7 +49,8 @@ git fetch --tags origin             # so the "last tag" below is accurate
 - **Not on `main`** → ask the user to switch or confirm they really want to release
   from this branch.
 - **Dirty tree** → stop. Uncommitted work must be committed or stashed first; the
-  release commit should contain only the version bump + changelog.
+  release commit should contain only the version bump, the changelog and the
+  docs that Step 4 fixes.
 - It's fine if `dist/` shows as modified after a build later — that's gitignored.
 
 ## Step 1 — Gather state

@@ -173,7 +173,7 @@ The guides live in
 - [Conditional rollback](https://github.com/kalinichenko88/telegram-agent-kit/blob/main/docs/guides/conditional-rollback.md)
   — keep a failed turn whose tools already wrote.
 - [API reference](https://github.com/kalinichenko88/telegram-agent-kit/blob/main/docs/guides/api-reference.md)
-  — every export of both entry points.
+  — the main exports of both entry points.
 - [Design guarantees](https://github.com/kalinichenko88/telegram-agent-kit/blob/main/docs/guides/design-guarantees.md)
   — what the tests enforce.
 

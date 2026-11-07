@@ -25,8 +25,10 @@ export type TurnQueue = <T>(key: ChatKey, task: () => Promise<T>) => Promise<T>;
  *  on different threads and have no reason to wait on each other, exactly as in
  *  the `ThreadStore`.
  *
- *  Four caveats, with their reasoning, live in
- *  `docs/guides/one-turn-per-chat.md`: the queue is
+ *  Four caveats, with their reasoning, live in the guide
+ *  https://github.com/kalinichenko88/telegram-agent-kit/blob/main/docs/guides/one-turn-per-chat.md
+ *  (a URL, because this comment ships in the `.d.ts` and `docs/` does not):
+ *  the queue is
  *  per-process, the returned promise must be awaited, a queued task must not
  *  call the queue for its own key, and a new message waits for the running turn
  *  rather than superseding it. */
