@@ -32,7 +32,7 @@ ever drift, you publish the wrong version.
 Your job is everything around that CI publish: pick the version, write the
 changelog, sync `package.json`, prove the build is green, commit, push, and — after
 an explicit confirmation, because pushing the tag publishes to npm and **an npm
-version can't be unpublished, only deprecated** — push the tag. You also own the
+version number can never be used again, even after an unpublish** — push the tag. You also own the
 GitHub Release: create it as a **draft** right after tagging, then **publish the
 draft only once CI confirms the npm publish succeeded**. That ordering means a
 failed publish never leaves a public GitHub Release pointing at a version nobody can
@@ -228,18 +228,27 @@ Report the published version plus the npm and GitHub Release URLs.
 the failing log. Common causes:
 
 - `E404 Not Found - PUT https://registry.npmjs.org/telegram-agent-kit` or
-  `ENEEDAUTH`: the trusted publisher on npmjs.com does not match the run (owner,
-  repository, workflow file name, environment), or it does not allow
-  `npm publish`.
-- A provenance error: the `repository` field is missing from `package.json`.
+  `ENEEDAUTH`: npm could not authenticate through trusted publishing. Check the
+  workflow first: it needs `permissions: id-token: write` and npm 11.5.1 or later
+  (Node 24 ships it). A gap there is in the repository. Otherwise the trusted
+  publisher on npmjs.com does not match the run (owner, repository, workflow file
+  name, environment), or it does not allow `npm publish`.
+- A provenance error: the `repository` field is missing from `package.json`, or
+  it does not match the GitHub repository.
 
-The tag is already pushed, so never retag the same version. First check that the
-version did not reach npm: `npm view telegram-agent-kit@<version> version` fails
-with `E404 No match found`. Then choose by where the cause is:
+The tag is already pushed, so never retag the same version. First check whether
+the version reached npm: `npm view telegram-agent-kit@<version> version`. If it
+prints `<version>`, the publish went through: go on with **On success**. If it
+exits 1 with `npm error 404 No match found for version <version>`, choose by where
+the cause is:
 
 - **Outside the repository** (the npm settings, a GitHub setting): fix the cause,
-  then rerun the same run with `gh run rerun <run-id>`. The rerun publishes the
-  same tag. When it succeeds, go on with **On success**.
+  then rerun the failed run with `gh run rerun <run-id>`, where `<run-id>` is the
+  `databaseId` that the `gh run list` above prints. The rerun runs the tagged
+  commit and publishes the same tag. Watch it with
+  `gh run watch --exit-status <run-id>`, and when it succeeds, go on with
+  **On success**.
 - **In the repository** (the workflow, `package.json`): fix it in a new commit and
-  cut the **next** patch. The draft of the failed version is harmless; delete it
-  (`gh release delete v<version>`) or keep it to publish once the re-cut succeeds.
+  cut the **next** patch. Delete the draft of the failed version with
+  `gh release delete v<version>`: that version is not on npm. The tag stays. Step 7
+  of the re-cut makes the draft of the next version.
