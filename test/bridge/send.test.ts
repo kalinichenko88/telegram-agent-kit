@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type { BotClient, Logger } from '../../src/bridge/interfaces.ts';
-import { isBlankText, sendReply } from '../../src/bridge/send.ts';
+import { sendReply } from '../../src/bridge/send.ts';
 import { TelegramApiError } from '../../src/errors.ts';
 
 const noopLog: Logger = { warn: () => {}, error: () => {} };
@@ -178,7 +178,7 @@ test.each([
   ],
   [
     'an invisible in that blank run',
-    `${'a'.repeat(3000)}\n\n​\n${'b'.repeat(5000)}`,
+    `${'a'.repeat(3000)}\n\n\u200B\n${'b'.repeat(5000)}`,
     false,
   ],
   ['a whitespace tail', `${'a'.repeat(3999)}\n${'\n'.repeat(150)}`, false],
@@ -188,15 +188,18 @@ test.each([
     true,
   ],
 ])('a long reply with %s goes out whole', async (_label, text, rich) => {
+  // A fixed rule, not isBlankText: the fake must not judge a chunk with the
+  // predicate under test. Whitespace and U+200B are all these inputs hold.
+  const unseen = /[\s\u200B]/g;
   const sendMessage = vi.fn(async (p: { text: string }) => {
-    if (isBlankText(p.text)) {
+    if (p.text.replace(unseen, '') === '') {
       throw new TelegramApiError(400, 'Bad Request: text must be non-empty');
     }
   });
   const c = fakeClient({ sendMessage });
   await sendReply(c, 1, text, { rich, log: noopLog });
   const sent = sendMessage.mock.calls.map(([p]) => p.text).join('');
-  expect(sent.replace(/[\s​]/g, '')).toBe(text.replace(/[\s​]/g, ''));
+  expect(sent.replace(unseen, '')).toBe(text.replace(unseen, ''));
 });
 
 test('a Cf character outside Default_Ignorable is blank too', async () => {

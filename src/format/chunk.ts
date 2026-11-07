@@ -7,7 +7,8 @@ const RICH_LIMIT = 32768;
 /** Split into ≤TELEGRAM_LIMIT UTF-16-code-unit chunks without severing a
  *  surrogate pair. Prefers paragraph/line boundaries, hard-cuts otherwise.
  *  A chunk can be blank on its own, as the '\n' between a blank line and a
- *  long line: the sender skips it (sendClassic in src/bridge/send.ts). */
+ *  long line. Telegram refuses a blank message, so a caller that sends the
+ *  chunks skips such a chunk with isBlankText, as sendClassic does. */
 export function chunkText(text: string): string[] {
   if (text.length <= TELEGRAM_LIMIT) return [text];
   const chunks: string[] = [];

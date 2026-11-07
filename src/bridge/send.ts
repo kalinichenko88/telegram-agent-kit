@@ -56,9 +56,11 @@ async function sendClassic(
     // the blank run after a paragraph, a whitespace tail, a whitespace-only
     // rich piece routed here. sendText's guard sees only the whole reply, and
     // Telegram refuses the chunk on both sends, so the reply stopped at it
-    // (#39). Every send of text reaches this loop, so the guard is here, not
-    // in each chunker: the chunkers cannot import the predicate (I-1). A
-    // blank chunk renders as nothing, so skipping it loses nothing.
+    // (#39). Every classic send runs this loop: sendText's classic path, each
+    // rich piece that needs no rich renderer, and the rich fallback. So one
+    // guard here covers what both chunkers give the kit's own send. A blank
+    // chunk renders as nothing, so skipping it loses nothing, and no log
+    // marks it: the user still gets the whole reply.
     if (isBlankText(chunk)) continue;
     let html: string | null;
     try {
