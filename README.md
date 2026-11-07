@@ -222,7 +222,9 @@ as the only record of what the turn did, and it expires with the draft in ~30s (
 moment `emptyNotice` lands, since any real message wipes every live draft in the chat).
 The same check guards `sendText` itself, so a *direct* caller (a background job handing
 model output to `sendReply`) skips the send — with a `telegram blank send skipped`
-warning — instead of throwing a Bot API 400. That notice is a **separate** line from
+warning — instead of throwing a Bot API 400. A long reply is checked per chunk too: a
+chunk that is blank on its own, as a lone newline at a cut, is skipped, and the rest of
+the reply still goes out. `emptyNotice` is a **separate** line from
 `errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
 stands, and "it broke" would invite a re-send that repeats the write.
 
@@ -360,7 +362,9 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
 - `mdToTelegramHtml(md, opts?)` — Markdown → Telegram-HTML. Never throws. `opts.partial`
   auto-closes unclosed marks/fences for live drafts.
 - `chunkText(text)` / `safeSlice(text, max)` / `chunkRich(md)` — surrogate-safe splitting
-  (classic limit 4096, rich limit 32768).
+  (classic limit 4096, rich limit 32768). A chunk can be blank on its own, and Telegram
+  refuses a blank message: if you send the chunks yourself, skip each one that
+  `isBlankText(chunk)` calls blank, as `sendText` does.
 - `repairRichTables(md)` · `neutralizeRichMedia(md)` · `extractTrailingCover(reply)` — rich helpers.
 - `needsRich(md)` — does this text need the rich renderer (today: does it contain a GFM
   table, outside code)? The gate behind `rich: true`; everything else goes classic.
