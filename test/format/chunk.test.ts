@@ -67,6 +67,19 @@ describe('chunkText', () => {
     expect(chunks).toEqual([head, `\n${tail}`]);
     expect(chunks.join('')).toBe(`${head}\n${tail}`);
   });
+  // #39: after the cut at the blank line, the rest starts with that blank run,
+  // and the long line after it has no newline within the target. A newline cut
+  // inside the run gave a chunk of whitespace only, which Telegram refuses.
+  test.each(['\n\n', '\n\n\n', '\n\n \n'])(
+    'returns no blank chunk for a blank run %j before a long line',
+    (gap) => {
+      const text = `${'a'.repeat(3000)}${gap}${'b'.repeat(5000)}`;
+      const chunks = chunkText(text);
+      expect(chunks.filter((c) => c.trim() === '')).toEqual([]);
+      expect(chunks.every((c) => c.length <= 4096)).toBe(true);
+      expect(chunks.join('')).toBe(text);
+    },
+  );
 });
 
 describe('safeSlice', () => {
