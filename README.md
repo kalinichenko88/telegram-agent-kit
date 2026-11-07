@@ -222,7 +222,9 @@ as the only record of what the turn did, and it expires with the draft in ~30s (
 moment `emptyNotice` lands, since any real message wipes every live draft in the chat).
 The same check guards `sendText` itself, so a *direct* caller (a background job handing
 model output to `sendReply`) skips the send — with a `telegram blank send skipped`
-warning — instead of throwing a Bot API 400. That notice is a **separate** line from
+warning — instead of throwing a Bot API 400. A long reply is checked per chunk too: a
+chunk that is blank on its own, as a lone newline at a cut, is skipped, and the rest of
+the reply still goes out. `emptyNotice` is a **separate** line from
 `errorNotice` on purpose: an empty turn is not rolled back, so whatever its tools wrote
 stands, and "it broke" would invite a re-send that repeats the write.
 

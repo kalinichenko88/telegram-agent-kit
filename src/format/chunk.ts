@@ -5,26 +5,20 @@ const CHUNK_TARGET = 4000;
 const RICH_LIMIT = 32768;
 
 /** Split into ≤TELEGRAM_LIMIT UTF-16-code-unit chunks without severing a
- *  surrogate pair. Prefers paragraph/line boundaries, hard-cuts otherwise. */
+ *  surrogate pair. Prefers paragraph/line boundaries, hard-cuts otherwise.
+ *  A chunk can be blank on its own, as the '\n' between a blank line and a
+ *  long line: the sender skips it (sendClassic in src/bridge/send.ts). */
 export function chunkText(text: string): string[] {
   if (text.length <= TELEGRAM_LIMIT) return [text];
   const chunks: string[] = [];
   let rest = text;
   while (rest.length > TELEGRAM_LIMIT) {
-    // A newline cut counts only past the whitespace run that opens the rest.
-    // After a cut at a blank line the rest starts with that blank run; a cut
-    // inside it gives a chunk of whitespace only, and Telegram refuses a blank
-    // message (400 `text must be non-empty`), so the reply stops there (#39).
-    // ponytail: a run longer than CHUNK_TARGET still hard-cuts into a blank
-    // chunk; skip blank chunks in sendClassic if such input ever shows up.
-    const lead = rest.length - rest.trimStart().length;
     let cut = rest.lastIndexOf('\n\n', CHUNK_TARGET);
-    if (cut <= lead) cut = rest.lastIndexOf('\n', CHUNK_TARGET);
+    if (cut < 1) cut = rest.lastIndexOf('\n', CHUNK_TARGET);
     // A newline cut cannot split a pair: the unit at the cut is '\n'. Only a
-    // hard cut can, so only it goes through safeSlice. Each chunk holds text:
-    // a newline cut is past the run, and safeSlice moves a cut back by one unit.
-    const chunk =
-      cut <= lead ? safeSlice(rest, CHUNK_TARGET) : rest.slice(0, cut);
+    // hard cut can, so only it goes through safeSlice. Each chunk is non-empty:
+    // a newline cut is at least 1, and safeSlice moves a cut back by one unit.
+    const chunk = cut < 1 ? safeSlice(rest, CHUNK_TARGET) : rest.slice(0, cut);
     chunks.push(chunk);
     rest = rest.slice(chunk.length);
   }

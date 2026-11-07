@@ -52,6 +52,14 @@ async function sendClassic(
   signal?: AbortSignal,
 ): Promise<void> {
   for (const chunk of chunkText(text)) {
+    // A chunk can be blank on its own though the reply is not: a cut inside
+    // the blank run after a paragraph, a whitespace tail, a whitespace-only
+    // rich piece routed here. sendText's guard sees only the whole reply, and
+    // Telegram refuses the chunk on both sends, so the reply stopped at it
+    // (#39). Every send of text reaches this loop, so the guard is here, not
+    // in each chunker: the chunkers cannot import the predicate (I-1). A
+    // blank chunk renders as nothing, so skipping it loses nothing.
+    if (isBlankText(chunk)) continue;
     let html: string | null;
     try {
       html = mdToTelegramHtml(chunk);

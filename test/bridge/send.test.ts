@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type { BotClient, Logger } from '../../src/bridge/interfaces.ts';
-import { sendReply } from '../../src/bridge/send.ts';
+import { isBlankText, sendReply } from '../../src/bridge/send.ts';
 import { TelegramApiError } from '../../src/errors.ts';
 
 const noopLog: Logger = { warn: () => {}, error: () => {} };
@@ -164,6 +164,39 @@ test('an emoji-only reply is real content, not blank', async () => {
   const c = fakeClient();
   await sendReply(c, 1, '👨‍👩‍👧', { rich: false, log: noopLog });
   expect(c.sendMessage).toHaveBeenCalledTimes(1);
+});
+
+// #39: a long reply can split into a chunk that is blank on its own, though the
+// reply is not. The guard in sendText sees only the whole reply, Telegram
+// refuses the blank chunk (and its plain retry), and the user gets only the
+// chunks before it. The fake refuses a blank text as the Bot API does.
+test.each([
+  [
+    'a blank line before a long line',
+    `${'a'.repeat(3000)}\n\n${'b'.repeat(5000)}`,
+    false,
+  ],
+  [
+    'an invisible in that blank run',
+    `${'a'.repeat(3000)}\n\n​\n${'b'.repeat(5000)}`,
+    false,
+  ],
+  ['a whitespace tail', `${'a'.repeat(3999)}\n${'\n'.repeat(150)}`, false],
+  [
+    'a whitespace-only rich piece',
+    `${'a'.repeat(32767)}\n\n \n\n${'c'.repeat(32767)}`,
+    true,
+  ],
+])('a long reply with %s goes out whole', async (_label, text, rich) => {
+  const sendMessage = vi.fn(async (p: { text: string }) => {
+    if (isBlankText(p.text)) {
+      throw new TelegramApiError(400, 'Bad Request: text must be non-empty');
+    }
+  });
+  const c = fakeClient({ sendMessage });
+  await sendReply(c, 1, text, { rich, log: noopLog });
+  const sent = sendMessage.mock.calls.map(([p]) => p.text).join('');
+  expect(sent.replace(/[\s​]/g, '')).toBe(text.replace(/[\s​]/g, ''));
 });
 
 test('a Cf character outside Default_Ignorable is blank too', async () => {

@@ -226,10 +226,9 @@ Review only. The code comments at the named places are the spec.
   `test/deepagents/to-agent-stream.test.ts`.
 
 - **I-20.** `chunkText`, `safeSlice` and `chunkRich` never sever a UTF-16
-  surrogate pair. `chunkText` cuts at a newline only past the whitespace run
-  that opens the rest, so a chunk is not blank. Limits: `TELEGRAM_LIMIT` 4096
-  (target 4000), `RICH_LIMIT` 32768, photo caption 1024
-  (`src/bridge/send.ts`). Pinned by `test/format/chunk.test.ts`.
+  surrogate pair. Limits: `TELEGRAM_LIMIT` 4096 (target 4000), `RICH_LIMIT`
+  32768, photo caption 1024 (`src/bridge/send.ts`). Pinned by
+  `test/format/chunk.test.ts`.
 
 ## Cross-cutting concerns
 
