@@ -243,9 +243,9 @@ exits 1 with `npm error 404 No match found for version <version>`, choose by whe
 the cause is:
 
 - **Outside the repository** (the npm settings, a GitHub setting): fix the cause,
-  then rerun the failed run with `gh run rerun <run-id>`, where `<run-id>` is the
-  ID that `gh run list --workflow=release.yml --limit=1` prints. The rerun runs the
-  tagged commit and publishes the same tag. Watch it with
+  then rerun the failed run with `gh run rerun <run-id>`, where `<run-id>` is what
+  `gh run list --workflow=release.yml --limit=1 --json databaseId -q '.[0].databaseId'`
+  prints. The rerun runs the tagged commit and publishes the same tag. Watch it with
   `gh run watch --exit-status <run-id>`, and when it succeeds, go on with
   **On success**.
 - **In the repository** (the workflow, `package.json`): fix it in a new commit and
