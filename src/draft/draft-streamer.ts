@@ -1,7 +1,6 @@
 import type { BotClient, Logger } from '../bridge/interfaces.ts';
 import { isBadRequest, isRateLimited } from '../errors.ts';
-import { safeSlice } from '../format/chunk.ts';
-import { needsRich } from '../format/rich.ts';
+import { needsRich, safeSlice } from '../format/index.ts';
 import { DEFAULT_DRAFT_CONSTANTS, type DraftConstants } from './constants.ts';
 
 type IntervalHandle = ReturnType<typeof setInterval>;
