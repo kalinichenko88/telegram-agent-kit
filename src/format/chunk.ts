@@ -13,11 +13,10 @@ export function chunkText(text: string): string[] {
   while (rest.length > TELEGRAM_LIMIT) {
     let cut = rest.lastIndexOf('\n\n', CHUNK_TARGET);
     if (cut < 1) cut = rest.lastIndexOf('\n', CHUNK_TARGET);
-    if (cut < 1) cut = CHUNK_TARGET;
-    // safeSlice moves the cut back only for a real pair, so each chunk is
-    // never empty: a cut at 1 has a newline at index 1, which is not a low
-    // surrogate, and any larger cut moves back to at least 1.
-    const chunk = safeSlice(rest, cut);
+    // A newline cut cannot split a pair: the unit at the cut is '\n'. Only a
+    // hard cut can, so only it goes through safeSlice. Each chunk is non-empty:
+    // a newline cut is at least 1, and safeSlice moves a cut back by one unit.
+    const chunk = cut < 1 ? safeSlice(rest, CHUNK_TARGET) : rest.slice(0, cut);
     chunks.push(chunk);
     rest = rest.slice(chunk.length);
   }

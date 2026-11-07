@@ -90,7 +90,10 @@ describe('safeSlice', () => {
     // here returned '' and stalled any loop that slices by the result's length.
     expect(safeSlice(`\uD800\n${'a'.repeat(5000)}`, 1)).toBe('\uD800');
   });
-  test('keeps exactly max when the boundary char is not a high surrogate', () => {
+  test('keeps a lone low surrogate after the cut', () => {
+    expect(safeSlice('a\uDC00b', 1)).toBe('a');
+  });
+  test('keeps exactly max when the cut is not inside a surrogate pair', () => {
     expect(safeSlice('a'.repeat(5000), 4000).length).toBe(4000);
   });
 });
