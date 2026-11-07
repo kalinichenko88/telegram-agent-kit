@@ -45,7 +45,8 @@ tsup.config.ts    the two build entries; the optional peers are externalized
 ## Modules
 
 Each module is a folder with an `index.ts`, except `errors`, which is one
-file. The `index.ts` is the module's part of the package's public API. The
+file. The `index.ts` is the module's part of the package's public API, and
+the only runtime way into the module from another one (I-21). The
 three core modules re-export every file with `export *`; `src/deepagents/index.ts` exports
 by name, because the subpath surface is curated. `src/index.ts` is the package
 root and re-exports the core modules and `errors.ts`.
@@ -161,6 +162,14 @@ line is review only, and the test named with it pins it.
 - **I-11.** Every relative import in `src/` and `test/` carries its `.ts`
   extension.
   Check: grep `(from |import\()'\.([^']*[^s]|[^']*[^t]s|[^']*[^.]ts)'` in `src` `test`.
+
+- **I-21.** A file in `src/` imports a file of another module only through
+  that module's `index.ts`. The one exception is `src/bridge/interfaces.ts`,
+  which holds only types: `verbatimModuleSyntax` makes every import of it an
+  `import type`, so it never loads at runtime.
+  Check: grep `(from |import\()'\.\.?/[a-z]+/[^i]` in `src`.
+  The grep passes `index.ts` and `interfaces.ts` by their first letter, so a
+  new module file whose name starts with `i` escapes it.
 
 ### Limits of decomposition
 
