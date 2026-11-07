@@ -32,7 +32,7 @@ Run a single test file or test by name:
 
 ```sh
 npx vitest run test/format/md-to-html.test.ts          # one file
-npx vitest run -t "renders nested bold"                # by test name
+npx vitest run -t "nests bold and italic"              # by test name
 npx vitest                                             # watch mode
 ```
 

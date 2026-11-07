@@ -26,7 +26,8 @@ its own task's result. Drained chains are dropped, so a bot serving many chats d
 retain one promise per chat it ever saw.
 
 Two things to avoid. **Await the returned promise** — a rejection from your own callback
-reaches nobody else, and an unhandled one takes the process down on Node. And **don't
+reaches nobody else. The queue attaches its own handler to that promise, so Node reports
+no unhandled rejection: a rejection you ignore is lost without a trace. And **don't
 call the queue for the same key from inside a queued task** (a hook starting a follow-up
 turn for its own chat): it waits on a tail that can't settle until the task waiting on it
 returns. Both are inherent to a mutex, not specific to this one.
@@ -34,5 +35,5 @@ returns. Both are inherent to a mutex, not specific to this one.
 A queue instance is per-process; a bot on several instances needs a shared lock, which is
 the same decision its `ThreadStore` already forces. And a new message always *waits* for
 the running turn — it never supersedes it. Superseding means aborting mid-flight, and an
-aborted turn is rolled back without the `shouldRollback` veto, erasing tool writes that
-already landed.
+aborted turn is rolled back without the `shouldRollback` veto, erasing the thread's
+record of tool writes that already landed (the writes themselves stay).
