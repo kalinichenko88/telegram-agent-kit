@@ -18,13 +18,11 @@ describe('chunkText', () => {
     expect(chunks.every((c) => c.length <= 4096)).toBe(true);
     expect(chunks.join('')).toBe('a'.repeat(9000));
   });
-  test('does not split a non-BMP char mid-codepoint', () => {
-    const emoji = '😀'; // 2 UTF-16 code units
-    const chunks = chunkText(emoji.repeat(2100)); // 4200 code units
-    for (const c of chunks) {
-      expect([...c].every((ch) => ch === '😀')).toBe(true);
-    }
-    expect(chunks.join('')).toBe(emoji.repeat(2100));
+  test('moves a hard cut back before a surrogate pair', () => {
+    const text = `a${'😀'.repeat(2100)}`; // the hard cut at 4000 lands inside a pair
+    const chunks = chunkText(text);
+    expect(chunks[0]).toBe(`a${'😀'.repeat(1999)}`);
+    expect(chunks.join('')).toBe(text);
   });
   test('makes progress after a lone high surrogate before a newline', () => {
     const text = `\uD800\n${'a'.repeat(5000)}`;
@@ -75,11 +73,20 @@ describe('safeSlice', () => {
   test('returns text unchanged when within max', () => {
     expect(safeSlice('hello', 4000)).toBe('hello');
   });
-  test('trims a trailing high surrogate at the boundary', () => {
-    const text = `${'a'.repeat(3999)}\uD83D${'b'.repeat(10)}`; // index 3999 is a lone high surrogate
-    expect(safeSlice(text, 4000).length).toBe(3999);
+  test('moves the cut back before a surrogate pair at the boundary', () => {
+    const text = `${'a'.repeat(3999)}😀${'b'.repeat(10)}`; // the pair is at 3999-4000
+    expect(safeSlice(text, 4000)).toBe('a'.repeat(3999));
   });
-  test('keeps exactly max when the boundary char is not a high surrogate', () => {
+  test('keeps a lone high surrogate at the cut', () => {
+    // No low surrogate follows, so there is no pair to protect. Trimming it
+    // here returned '' and stalled any loop that slices by the result's length.
+    expect(safeSlice(`\uD800\n${'a'.repeat(5000)}`, 1)).toBe('\uD800');
+    expect(safeSlice('\uD800😀', 1)).toBe('\uD800'); // a high one is no low one
+  });
+  test('keeps a lone low surrogate after the cut', () => {
+    expect(safeSlice('a\uDC00b', 1)).toBe('a');
+  });
+  test('keeps exactly max when the cut is not inside a surrogate pair', () => {
     expect(safeSlice('a'.repeat(5000), 4000).length).toBe(4000);
   });
 });
@@ -97,10 +104,9 @@ describe('chunkRich', () => {
     expect(pieces.every((p) => p.length <= RICH_LIMIT)).toBe(true);
   });
   test('hard-cuts a single oversized block surrogate-safely', () => {
-    const big = `${'a'.repeat(RICH_LIMIT - 1)}😀${'b'.repeat(10)}`;
+    const big = `${'a'.repeat(RICH_LIMIT - 1)}😀${'b'.repeat(10)}`; // pair at the cut
     const pieces = chunkRich(big);
-    expect(pieces.length).toBeGreaterThan(1);
-    expect(pieces.every((p) => p.length <= RICH_LIMIT)).toBe(true);
-    expect(pieces.join('')).toBe(big); // no codepoint severed
+    expect(pieces[0]).toBe('a'.repeat(RICH_LIMIT - 1));
+    expect(pieces.join('')).toBe(big);
   });
 });

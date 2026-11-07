@@ -13,28 +13,32 @@ export function chunkText(text: string): string[] {
   while (rest.length > TELEGRAM_LIMIT) {
     let cut = rest.lastIndexOf('\n\n', CHUNK_TARGET);
     if (cut < 1) cut = rest.lastIndexOf('\n', CHUNK_TARGET);
-    if (cut < 1) cut = CHUNK_TARGET;
-    // Never split a surrogate pair. A cut at 1 means index 1 is a newline,
-    // so any high surrogate before it is unpaired and can be kept.
-    const code = rest.charCodeAt(cut - 1);
-    if (cut > 1 && code >= 0xd800 && code <= 0xdbff) cut -= 1;
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut);
+    // A newline cut cannot split a pair: the unit at the cut is '\n'. Only a
+    // hard cut can, so only it goes through safeSlice. Each chunk is non-empty:
+    // a newline cut is at least 1, and safeSlice moves a cut back by one unit.
+    const chunk = cut < 1 ? safeSlice(rest, CHUNK_TARGET) : rest.slice(0, cut);
+    chunks.push(chunk);
+    rest = rest.slice(chunk.length);
   }
   if (rest.length > 0) chunks.push(rest);
 
   return chunks;
 }
 
-/** Surrogate-safe hard truncation to `max` UTF-16 code units. Mirrors the
- *  high-surrogate guard in chunkText so a draft cap never severs a pair. */
+/** Surrogate-safe hard truncation to `max` UTF-16 code units. The one home of
+ *  the pair rule: chunkText, chunkRich and the draft cap all cut through it.
+ *  The cut moves back one unit only for a real pair — a high surrogate at
+ *  `max - 1` and a low one at `max`. A lone high surrogate has nothing to
+ *  sever, so it stays; trimming it could return '' and stall a caller that
+ *  advances by the result's length. */
 export function safeSlice(text: string, max: number): string {
   if (text.length <= max) return text;
-  let cut = max;
-  const code = text.charCodeAt(cut - 1);
-  if (code >= 0xd800 && code <= 0xdbff) cut -= 1; // don't split a surrogate pair
+  const high = text.charCodeAt(max - 1);
+  const low = text.charCodeAt(max);
+  const splitsPair =
+    high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff;
 
-  return text.slice(0, cut);
+  return text.slice(0, splitsPair ? max - 1 : max);
 }
 
 /** Block-aware splitter for rich markdown. Most replies fit RICH_LIMIT in one
