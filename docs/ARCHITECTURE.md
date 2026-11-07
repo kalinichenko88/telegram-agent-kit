@@ -164,9 +164,8 @@ line is review only, and the test named with it pins it.
   Check: grep `(from |import\()'\.([^']*[^s]|[^']*[^t]s|[^']*[^.]ts)'` in `src` `test`.
 
 - **I-21.** A file in `src/` imports a file of another module only through
-  that module's `index.ts`. The one exception is `src/bridge/interfaces.ts`,
-  which holds only types: `verbatimModuleSyntax` makes every import of it an
-  `import type`, so it never loads at runtime.
+  that module's `index.ts`. The one exception is `src/bridge/interfaces.ts`:
+  it holds only types, so an import of it runs no code.
   Check: grep `(from |import\()'\.\.?/[a-z]+/[^i]` in `src`.
   The grep passes `index.ts` and `interfaces.ts` by their first letter, so a
   new module file whose name starts with `i` escapes it.
