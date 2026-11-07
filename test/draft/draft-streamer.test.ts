@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { DEFAULT_DRAFT_CONSTANTS } from '../../src/draft/constants.ts';
 import { createDraftStreamer } from '../../src/draft/index.ts';
 import { TelegramApiError } from '../../src/errors.ts';
+import { chunkText } from '../../src/format/chunk.ts';
 
 const DRAFT_MAX_FAILURES = DEFAULT_DRAFT_CONSTANTS.maxFailures;
 
@@ -183,6 +184,14 @@ describe('DraftStreamer', () => {
     const plain = setup();
     plain.streamer.push('a'.repeat(5000));
     expect(plain.drafts[0]?.text.length).toBe(4000);
+  });
+
+  test('caps the preview at the classic chunk target', () => {
+    // previewCap copies CHUNK_TARGET of src/format/chunk.ts, which is not
+    // exported. A hard cut of chunkText is CHUNK_TARGET units long, so a
+    // change of either value without the other fails here.
+    const hardCut = chunkText('a'.repeat(5000))[0];
+    expect(DEFAULT_DRAFT_CONSTANTS.previewCap).toBe(hardCut?.length);
   });
 
   test('never drafts a whitespace-only preview', () => {

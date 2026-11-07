@@ -25,7 +25,9 @@ export const DEFAULT_DRAFT_CONSTANTS: DraftConstants = {
   throttleMs: 300, // min interval between draft content writes
   keepaliveMs: 20000, // re-send last draft text within the ~30s expiry window
   typingHeartbeatMs: 4500, // re-send `typing` before its ~5s lifetime lapses
-  previewCap: 4000, // one-message cap for the live preview (= CHUNK_TARGET)
+  // One-message cap for the live preview. A copy of CHUNK_TARGET, which
+  // format does not export; a test in draft-streamer.test.ts pins the two.
+  previewCap: 4000,
   maxFailures: 3, // consecutive send failures → disable draft for the turn
   drainMs: 5000, // finalize() wait for an in-flight write to settle (ordering)
   tickMs: 250, // ticker granularity
