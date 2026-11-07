@@ -178,7 +178,7 @@ describe('DraftStreamer', () => {
 
   test('caps the preview surrogate-safely', () => {
     const hi = setup();
-    hi.streamer.push(`${'a'.repeat(3999)}\uD83D${'b'.repeat(1000)}`);
+    hi.streamer.push(`${'a'.repeat(3999)}😀${'b'.repeat(1000)}`); // pair at 3999-4000
     expect(hi.drafts[0]?.text.length).toBe(3999);
     const plain = setup();
     plain.streamer.push('a'.repeat(5000));

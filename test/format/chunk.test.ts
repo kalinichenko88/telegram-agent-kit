@@ -26,6 +26,12 @@ describe('chunkText', () => {
     }
     expect(chunks.join('')).toBe(emoji.repeat(2100));
   });
+  test('moves a hard cut back before a surrogate pair', () => {
+    const text = `a${'😀'.repeat(2100)}`; // the hard cut at 4000 lands inside a pair
+    const chunks = chunkText(text);
+    expect(chunks[0]).toBe(`a${'😀'.repeat(1999)}`);
+    expect(chunks.join('')).toBe(text);
+  });
   test('makes progress after a lone high surrogate before a newline', () => {
     const text = `\uD800\n${'a'.repeat(5000)}`;
     // Bound the subprocess because the original bug is a synchronous loop.
@@ -75,9 +81,14 @@ describe('safeSlice', () => {
   test('returns text unchanged when within max', () => {
     expect(safeSlice('hello', 4000)).toBe('hello');
   });
-  test('trims a trailing high surrogate at the boundary', () => {
-    const text = `${'a'.repeat(3999)}\uD83D${'b'.repeat(10)}`; // index 3999 is a lone high surrogate
-    expect(safeSlice(text, 4000).length).toBe(3999);
+  test('moves the cut back before a surrogate pair at the boundary', () => {
+    const text = `${'a'.repeat(3999)}😀${'b'.repeat(10)}`; // the pair is at 3999-4000
+    expect(safeSlice(text, 4000)).toBe('a'.repeat(3999));
+  });
+  test('keeps a lone high surrogate at the cut', () => {
+    // No low surrogate follows, so there is no pair to protect. Trimming it
+    // here returned '' and stalled any loop that slices by the result's length.
+    expect(safeSlice(`\uD800\n${'a'.repeat(5000)}`, 1)).toBe('\uD800');
   });
   test('keeps exactly max when the boundary char is not a high surrogate', () => {
     expect(safeSlice('a'.repeat(5000), 4000).length).toBe(4000);
