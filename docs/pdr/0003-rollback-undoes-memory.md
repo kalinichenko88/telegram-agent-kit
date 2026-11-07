@@ -33,4 +33,4 @@ turn budget.
 
 ## Links
 
-ARCHITECTURE.md I-18; README "Conditional rollback"; #17
+ARCHITECTURE.md I-18; `docs/guides/conditional-rollback.md`; #17

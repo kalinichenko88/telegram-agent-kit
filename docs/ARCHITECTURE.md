@@ -1,8 +1,8 @@
 # Architecture
 
 This file holds what the code cannot tell: the modules, the layers, the
-patterns, and the numbered invariants with their checks. `CLAUDE.md` holds how
-to work: the commands and the conventions. The code comments hold the detail of
+patterns, and the numbered invariants with their checks. `CONTRIBUTING.md` holds
+how to work: the commands and the conventions. The code comments hold the detail of
 each behaviour; this file points at them and does not restate them.
 
 ## Bird's-eye view

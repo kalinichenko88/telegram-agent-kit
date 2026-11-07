@@ -30,4 +30,4 @@ message wins.
 
 ## Links
 
-PDR 0003; README "One turn at a time per chat"; #17
+PDR 0003; `docs/guides/one-turn-per-chat.md`; #17

@@ -38,7 +38,7 @@ model in `models/`" in this project.
 ## Consequences
 
 Good: a function and its options read in one file; the caller's contracts
-read in one file, which the README's "The four interfaces" section maps to;
+read in one file, which `docs/guides/interfaces.md` maps to;
 no file split.
 Bad: a type that several modules use sits in the module of its owner, as
 `src/bridge/interfaces.ts`, which `src/draft/` also imports (the debt of

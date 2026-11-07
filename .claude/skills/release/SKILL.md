@@ -118,9 +118,10 @@ Conventions to follow:
 
 1. Bump `version` in `package.json` to the agreed value.
 2. Prepend the new section to `CHANGELOG.md`.
-3. Check `README.md` against the `feat:` / `feat!:` / `BREAKING CHANGE` commits from
-   Step 1 — a new public export, option, or changed default that the README doesn't
-   mention (or documents the old way) is a doc bug shipping with the release. Fix it
+3. Check `README.md` and the guides in `docs/guides/` (the API reference above all)
+   against the `feat:` / `feat!:` / `BREAKING CHANGE` commits from Step 1 — a new
+   public export, option, or changed default that they don't mention (or document
+   the old way) is a doc bug shipping with the release. Fix it
    here so it lands in the same commit. Patch-only releases usually need nothing;
    say so rather than editing for the sake of it.
 
@@ -132,7 +133,7 @@ string — this is the value CI will publish.
 Run the **same checks CI runs, in the same order**. The ordering is load-bearing:
 `build` must run before `test` because `test/deepagents/no-peers.test.ts` greps the
 built `dist/deepagents/index.js` to prove the bundle carries no runtime peer import,
-and it silently skips when `dist/` is absent (see CLAUDE.md).
+and it silently skips when `dist/` is absent (see CONTRIBUTING.md).
 
 ```sh
 npm run lint
@@ -149,13 +150,13 @@ them for the user to fix — say which you did.
 ## Step 6 — Commit and push the branch
 
 ```sh
-git add package.json CHANGELOG.md README.md   # README only if Step 4 changed it
+git add package.json CHANGELOG.md README.md docs/guides   # the docs only if Step 4 changed them
 git commit -m "chore: release v<version>"
 git push origin main
 ```
 
-Only `package.json`, `CHANGELOG.md` and (when touched) `README.md` should be in this
-commit. `dist/` is gitignored and must not be staged.
+Only `package.json`, `CHANGELOG.md` and (when touched) `README.md` and `docs/guides/`
+should be in this commit. `dist/` is gitignored and must not be staged.
 
 ## Step 7 — Tag, then open a DRAFT GitHub Release (explicit confirmation required)
 
