@@ -26,7 +26,8 @@ export const DEFAULT_DRAFT_CONSTANTS: DraftConstants = {
   keepaliveMs: 20000, // re-send last draft text within the ~30s expiry window
   typingHeartbeatMs: 4500, // re-send `typing` before its ~5s lifetime lapses
   // One-message cap for the live preview. A copy of CHUNK_TARGET, which
-  // format does not export; a test in draft-streamer.test.ts pins the two.
+  // format does not export. The test "caps the preview at the classic chunk
+  // target" in test/draft/draft-streamer.test.ts pins the two.
   previewCap: 4000,
   maxFailures: 3, // consecutive send failures → disable draft for the turn
   drainMs: 5000, // finalize() wait for an in-flight write to settle (ordering)

@@ -189,8 +189,9 @@ describe('DraftStreamer', () => {
   test('caps the preview at the classic chunk target', () => {
     // previewCap copies CHUNK_TARGET of src/format/chunk.ts, which is not
     // exported. A hard cut of chunkText is CHUNK_TARGET units long, so a
-    // change of either value without the other fails here.
-    const hardCut = chunkText('a'.repeat(5000))[0];
+    // change of either value without the other fails here. The input is far
+    // above TELEGRAM_LIMIT, so the first chunk is always a hard cut.
+    const hardCut = chunkText('a'.repeat(10000))[0];
     expect(DEFAULT_DRAFT_CONSTANTS.previewCap).toBe(hardCut?.length);
   });
 
