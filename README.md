@@ -362,7 +362,9 @@ doesn't, that's an argument for rolling back and reconciling the writes by hand.
 - `mdToTelegramHtml(md, opts?)` — Markdown → Telegram-HTML. Never throws. `opts.partial`
   auto-closes unclosed marks/fences for live drafts.
 - `chunkText(text)` / `safeSlice(text, max)` / `chunkRich(md)` — surrogate-safe splitting
-  (classic limit 4096, rich limit 32768).
+  (classic limit 4096, rich limit 32768). A chunk can be blank on its own, and Telegram
+  refuses a blank message: if you send the chunks yourself, skip each one that
+  `isBlankText(chunk)` calls blank, as `sendText` does.
 - `repairRichTables(md)` · `neutralizeRichMedia(md)` · `extractTrailingCover(reply)` — rich helpers.
 - `needsRich(md)` — does this text need the rich renderer (today: does it contain a GFM
   table, outside code)? The gate behind `rich: true`; everything else goes classic.

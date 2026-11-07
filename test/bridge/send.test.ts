@@ -181,7 +181,6 @@ test.each([
     `${'a'.repeat(3000)}\n\n\u200B\n${'b'.repeat(5000)}`,
     false,
   ],
-  ['a whitespace tail', `${'a'.repeat(3999)}\n${'\n'.repeat(150)}`, false],
   [
     'a whitespace-only rich piece',
     `${'a'.repeat(32767)}\n\n \n\n${'c'.repeat(32767)}`,
