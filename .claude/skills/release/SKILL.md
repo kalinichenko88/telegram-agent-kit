@@ -18,8 +18,11 @@ description: >-
 
 Publishing is **tag-driven and runs in CI**, not locally. The
 `.github/workflows/release.yml` workflow fires on any `v*` tag push and runs
-`npm ci → npm run build → npm publish --provenance --access public`, authing with
-the `NPM_TOKEN` repo secret.
+`npm ci → npm run build → npm publish --access public`. It authenticates through
+npm **trusted publishing** (OIDC): no token, no repo secret. The trusted publisher
+on npmjs.com is `kalinichenko88/telegram-agent-kit`, workflow `release.yml`, no
+environment, with `npm publish` allowed. Trusted publishing also makes the
+provenance statement, so the workflow passes no `--provenance`.
 
 The workflow publishes **exactly the `version` in `package.json`** — it does not
 derive the version from the tag. So the one invariant this skill exists to protect
@@ -222,9 +225,21 @@ gh release edit v<version> --draft=false      # publish the GitHub Release
 Report the published version plus the npm and GitHub Release URLs.
 
 **On failure** — leave the GitHub Release as a draft (do not publish it) and surface
-the failing log. Common causes: a `403` means `NPM_TOKEN` is missing/expired; a
-`--provenance` error usually means the `repository` field is missing from
-`package.json`. The tag is already pushed, so the fix is to address the cause and
-cut the **next** patch — never retag the same version. The lingering draft is
-harmless; delete it (`gh release delete v<version>`) or keep it to publish once a
-re-cut succeeds.
+the failing log. Common causes:
+
+- `E404 Not Found - PUT https://registry.npmjs.org/telegram-agent-kit` or
+  `ENEEDAUTH`: the trusted publisher on npmjs.com does not match the run (owner,
+  repository, workflow file name, environment), or it does not allow
+  `npm publish`.
+- A provenance error: the `repository` field is missing from `package.json`.
+
+The tag is already pushed, so never retag the same version. First check that the
+version did not reach npm: `npm view telegram-agent-kit@<version> version` fails
+with `E404 No match found`. Then choose by where the cause is:
+
+- **Outside the repository** (the npm settings, a GitHub setting): fix the cause,
+  then rerun the same run with `gh run rerun <run-id>`. The rerun publishes the
+  same tag. When it succeeds, go on with **On success**.
+- **In the repository** (the workflow, `package.json`): fix it in a new commit and
+  cut the **next** patch. The draft of the failed version is harmless; delete it
+  (`gh release delete v<version>`) or keep it to publish once the re-cut succeeds.
