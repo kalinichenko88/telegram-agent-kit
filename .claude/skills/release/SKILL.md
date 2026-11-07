@@ -32,11 +32,11 @@ ever drift, you publish the wrong version.
 Your job is everything around that CI publish: pick the version, write the
 changelog, sync `package.json`, prove the build is green, commit, push, and — after
 an explicit confirmation, because pushing the tag publishes to npm and **an npm
-version number can never be used again, even after an unpublish** — push the tag. You also own the
-GitHub Release: create it as a **draft** right after tagging, then **publish the
-draft only once CI confirms the npm publish succeeded**. That ordering means a
-failed publish never leaves a public GitHub Release pointing at a version nobody can
-install.
+version number can never be used again, even after an unpublish** — push the tag.
+You also own the GitHub Release: create it as a **draft** right after tagging, then
+**publish the draft only once CI confirms the npm publish succeeded**. That ordering
+means a failed publish never leaves a public GitHub Release pointing at a version
+nobody can install.
 
 ## Preconditions — check before doing anything
 
@@ -166,7 +166,7 @@ should be in this commit. `dist/` is gitignored and must not be staged.
 
 This is the irreversible step. **Before tagging, ask the user to confirm in plain
 terms**, e.g.: "Ready to publish `v<version>` to npm? Pushing the tag triggers the
-release workflow and the version cannot be unpublished — only deprecated. Proceed?"
+release workflow, and the version number can never be used again. Proceed?"
 
 Only after an explicit yes, push the tag:
 
@@ -244,11 +244,14 @@ the cause is:
 
 - **Outside the repository** (the npm settings, a GitHub setting): fix the cause,
   then rerun the failed run with `gh run rerun <run-id>`, where `<run-id>` is the
-  `databaseId` that the `gh run list` above prints. The rerun runs the tagged
-  commit and publishes the same tag. Watch it with
+  ID that `gh run list --workflow=release.yml --limit=1` prints. The rerun runs the
+  tagged commit and publishes the same tag. Watch it with
   `gh run watch --exit-status <run-id>`, and when it succeeds, go on with
   **On success**.
 - **In the repository** (the workflow, `package.json`): fix it in a new commit and
   cut the **next** patch. Delete the draft of the failed version with
   `gh release delete v<version>`: that version is not on npm. The tag stays. Step 7
-  of the re-cut makes the draft of the next version.
+  of the re-cut makes the draft of the next version. The changes of the failed
+  version ship in the next one, so in the re-cut, Steps 1, 3 and 7 read the commits
+  since the last tag that reached npm, not since the failed tag. Merge the
+  CHANGELOG section of the failed version into the next section.
