@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.2 — 2026-11-07
+
+- **A long reply no longer stops at a blank chunk.** `chunkText` can give a
+  chunk that holds only whitespace: a cut inside the blank lines after a
+  paragraph, or a whitespace tail. Telegram refuses a blank message on the HTML
+  send and on the plain-text fallback, so the classic send threw at that chunk
+  and the rest of the reply did not arrive. The classic send now skips a chunk
+  that `isBlankText` calls blank. A blank chunk renders as nothing, so the user
+  gets the whole reply. The guard covers each path that sends classic chunks:
+  the classic send of `sendText`, a rich piece that needs no rich renderer, and
+  the rich fallback. If you call `chunkText` or `chunkRich` yourself and send the
+  chunks, skip a blank chunk the same way (API reference updated).
+- **`chunkText` no longer hangs on an unpaired high surrogate before a
+  newline.** In a text over the Telegram limit that starts with an unpaired high
+  surrogate and then a newline, the surrogate guard moved the cut to zero. The
+  loop then pushed an empty chunk and never advanced.
+- **The surrogate rule moves a cut back only for a real pair.** `safeSlice` cut
+  off any high surrogate at the cut point, also an unpaired one, and could
+  return `''`. Now it moves the cut back one unit only when a high surrogate at
+  `max - 1` has a low surrogate at `max`. An unpaired high surrogate stays in
+  the chunk. `chunkText`, `chunkRich` and the draft preview cap all cut through
+  `safeSlice`, so they keep one rule.
+- **Documentation moved out of the README.** The user guides are now in
+  `docs/guides/`, and the README lists them with absolute links, so the links
+  also work on the npm page. Contributors get `CONTRIBUTING.md`,
+  `docs/ARCHITECTURE.md` and `docs/PRODUCT.md`.
+
 ## 0.9.1 — 2026-08-11
 
 - **A draft write is now acknowledged before the final send, so a stale frame no
