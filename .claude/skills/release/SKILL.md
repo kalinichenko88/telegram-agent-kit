@@ -47,11 +47,11 @@ stale tree produces a release that doesn't match what's reviewed.
 git rev-parse --abbrev-ref HEAD     # must be main
 git status --porcelain              # must be empty (clean tree)
 git fetch --tags origin             # so the "last tag" below is accurate
-git pull --ff-only origin main      # bring in the PRs merged on GitHub
+git pull --ff-only origin main      # on main: bring in the PRs merged on GitHub
 ```
 
 - **Not on `main`** → ask the user to switch or confirm they really want to release
-  from this branch.
+  from this branch. On another branch, skip the pull.
 - **Dirty tree** → stop. Uncommitted work must be committed or stashed first; the
   release commit should contain only the version bump, the changelog and the
   docs that Step 4 fixes.
@@ -89,18 +89,23 @@ state:
   lags. Do not start a new release: finish that one at Step 8, with `<version>` as
   the version of `<tag>`.
 - **Failed or cancelled:** read why with `gh run view <run-id> --log-failed`. A
-  rerun runs the files of the tagged commit again, so judge the cause from those
-  files (`git show <tag>:.github/workflows/release.yml`,
-  `git show <tag>:package.json`), not from `HEAD`.
+  rerun runs the tagged commit again, so judge the cause from that commit
+  (`git show <tag>:.github/workflows/release.yml`, `git show <tag>:package.json`,
+  the lockfile, the code that the build failed on), not from `HEAD`.
   - A cause outside the repository, a cancelled run, or a transient error (the
     network, a registry outage): a rerun of that run fixes it, not a new version.
-    Go to Step 8, **On failure**, with `<version>` as the version of `<tag>`.
-  - A cause in those files: when `HEAD` still has it, pause the release. Tell the
-    user, commit the fix on `main`, push it, and start again at the preconditions.
-    When `HEAD` has the fix, this run is a **re-cut**. Delete the draft of the
-    failed version if it is still there (`gh release delete <tag> --yes`). Then
-    `<last-tag>` below is `v<npm version>`, not `<tag>`, so the range also holds
-    the commits of the failed version, which ship in this one.
+    Go to Step 8, **On failure**, with `<version>` as the version of `<tag>`. When
+    the run is more than 30 days old, GitHub refuses the rerun: then this run is a
+    **re-cut**.
+  - A cause in the tagged commit: when `HEAD` still has it, pause the release.
+    Tell the user: the fix goes to `main` as any other change does, and the
+    release starts again at the preconditions after it. When `HEAD` has the fix,
+    this run is a **re-cut**.
+
+In a re-cut, delete the draft of the failed version if it is still there
+(`gh release delete <tag> --yes`). Then `<last-tag>` below is `v<npm version>`,
+not `<tag>`, so the range also holds the commits of the failed version, which ship
+in this one. In every other case, `<last-tag>` below is `<tag>`.
 
 When a release finished at Step 8 this way, start again at the preconditions for
 the commits after its tag.
@@ -165,7 +170,8 @@ Conventions to follow:
 - Insert the new section directly under the `# Changelog` title, above the previous
   version's section.
 - In a re-cut, `CHANGELOG.md` already has a section for the failed version, which
-  is not on npm. Merge its bullets into the new section and remove its heading.
+  is not on npm. Keep its bullets for the commits of the failed version, add
+  bullets only for the commits after its tag, and remove its heading.
 
 ## Step 4 — Apply the edits
 
@@ -272,7 +278,8 @@ gh release edit v<version> --draft=false               # publish the GitHub Rele
 ```
 
 If `v<version>` has no draft, because the session that pushed the tag ended
-before `gh release create`, create it first with the Step 7 command and notes.
+before `gh release create`, create it first with the Step 7 command. Write its
+notes from the `CHANGELOG.md` section of `<version>`.
 
 Report the published version plus the npm and GitHub Release URLs.
 
@@ -299,17 +306,21 @@ the version reached npm:
 with `npm error 404 No match found for version <version>`, choose by where the
 cause is:
 
-- **Outside the repository** (the npm settings, a GitHub setting): only the user
-  can change them. Ask the user to fix the cause and confirm. A cancelled run or a
-  transient error (the network, a registry outage) needs no fix. Then rerun the
-  failed run with `gh run rerun <run-id>`, where `<run-id>` is what
+- **Outside the repository** (the npm settings, a GitHub setting), a cancelled run,
+  or a transient error (the network, a registry outage): a rerun publishes
+  `v<version>`, so get a yes first. Only the user can change the settings: ask the
+  user to fix the cause and confirm. A cancel can mean that the user stopped the
+  publish: ask whether to publish it now. After the yes, rerun the failed run with
+  `gh run rerun <run-id>`, where `<run-id>` is what
   `gh run list --workflow=release.yml --branch v<version> --limit=1 --json databaseId -q '.[0].databaseId'`
   prints. The rerun runs the tagged commit and publishes the same tag. Watch it with
   `gh run watch --exit-status <run-id>`, and when it succeeds, go on with
-  **On success**.
-- **In the repository** (the workflow or `package.json` of the tagged commit): fix
-  it in a new commit. Delete the draft of the failed version with
-  `gh release delete v<version> --yes`: that version is not on npm. The tag
-  stays. Then release again from the preconditions: Step 1 finds the failed tag
-  and runs a **re-cut**, which ships the failed version's changes in the next
-  version.
+  **On success**. GitHub refuses a rerun more than 30 days after the run: then
+  delete the draft as below, and release again from the preconditions as a
+  **re-cut**.
+- **In the repository** (the tagged commit: the workflow, `package.json`, the
+  lockfile, the code): fix it in a new commit. Delete the draft of the failed
+  version with `gh release delete v<version> --yes`: that version is not on npm.
+  The tag stays. Then release again from the preconditions: Step 1 finds the
+  failed tag and runs a **re-cut**, which ships the failed version's changes in
+  the next version.
