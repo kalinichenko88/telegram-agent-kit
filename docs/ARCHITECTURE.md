@@ -52,7 +52,8 @@ by name, because the subpath surface is curated. `src/index.ts` is the package
 root. It re-exports bridge, draft and `errors.ts` with `export *`, and format
 by name: `src/format/index.ts` also carries `CHUNK_TARGET`, which draft reads
 for its preview cap and the package does not publish. `test/index.test.ts`
-fails on a new format export until the root lists it or names it as internal.
+fails on a new format export until the root lists it or the test names it
+as internal.
 
 - **format** (`src/format/`). Pure text functions: markdown to Telegram HTML
   (`md-to-html.ts`), surrogate-safe splitting (`chunk.ts`), GFM table repair,

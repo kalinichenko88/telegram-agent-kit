@@ -4,14 +4,11 @@ import * as format from '../src/format/index.ts';
 import * as root from '../src/index.ts';
 
 // The root re-exports format by name. A new format export fails here until
-// it is listed in src/index.ts or named below as internal.
-const INTERNAL_FORMAT_EXPORTS = ['CHUNK_TARGET'];
-
-test('the root publishes every format export but the internal ones', () => {
+// src/index.ts lists it, or this test names it as internal.
+test('the root publishes every format export but CHUNK_TARGET', () => {
   const published = Object.keys(format).filter(
-    (name) => !INTERNAL_FORMAT_EXPORTS.includes(name),
+    (name) => name !== 'CHUNK_TARGET',
   );
   expect(Object.keys(root)).toEqual(expect.arrayContaining(published));
-  for (const name of INTERNAL_FORMAT_EXPORTS)
-    expect(root).not.toHaveProperty(name);
+  expect(root).not.toHaveProperty('CHUNK_TARGET');
 });
