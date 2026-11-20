@@ -45,11 +45,16 @@ tsup.config.ts    the two build entries; the optional peers are externalized
 ## Modules
 
 Each module is a folder with an `index.ts`, except `errors`, which is one
-file. The `index.ts` is the module's part of the package's public API, and
-the only runtime way into the module from another one (I-21). The
-three core modules re-export every file with `export *`; `src/deepagents/index.ts` exports
+file. The `index.ts` is the only runtime way into the module from another
+one (I-21), and the source of the module's part of the package's public API.
+The three core modules re-export every file with `export *`; `src/deepagents/index.ts` exports
 by name, because the subpath surface is curated. `src/index.ts` is the package
-root and re-exports the core modules and `errors.ts`.
+root. It re-exports bridge, draft and `errors.ts` with `export *`, and format
+by name: `src/format/index.ts` also carries `CHUNK_TARGET`, which draft reads
+for its preview cap and the package does not publish. `test/index.test.ts`
+fails on a new value export of format until the root lists it or the test
+names it as internal. A new type export of format is public only when the
+root lists it, and no test checks that.
 
 - **format** (`src/format/`). Pure text functions: markdown to Telegram HTML
   (`md-to-html.ts`), surrogate-safe splitting (`chunk.ts`), GFM table repair,

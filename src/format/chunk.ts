@@ -1,6 +1,8 @@
 const TELEGRAM_LIMIT = 4096;
-/** Headroom under TELEGRAM_LIMIT for the classic chunker. */
-const CHUNK_TARGET = 4000;
+/** Headroom under TELEGRAM_LIMIT for the classic chunker. Exported for the
+ *  live-draft preview cap, which must match it; the package root re-exports
+ *  format by name and leaves this out, so it is not public API. */
+export const CHUNK_TARGET = 4000;
 /** Telegram's rich-message text limit (vs the classic 4096). */
 const RICH_LIMIT = 32768;
 
