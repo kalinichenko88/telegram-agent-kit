@@ -47,6 +47,7 @@ stale tree produces a release that doesn't match what's reviewed.
 git rev-parse --abbrev-ref HEAD     # must be main
 git status --porcelain              # must be empty (clean tree)
 git fetch --tags origin             # so the "last tag" below is accurate
+git pull --ff-only origin main      # bring in the PRs merged on GitHub
 ```
 
 - **Not on `main`** → ask the user to switch or confirm they really want to release
@@ -54,14 +55,55 @@ git fetch --tags origin             # so the "last tag" below is accurate
 - **Dirty tree** → stop. Uncommitted work must be committed or stashed first; the
   release commit should contain only the version bump, the changelog and the
   docs that Step 4 fixes.
+- **Pull refused** (`Not possible to fast-forward`) → stop. Local `main` has
+  commits that `origin/main` does not have. Show them with
+  `git log --oneline origin/main..main` and let the user decide. Do not merge or
+  rebase them yourself.
 - It's fine if `dist/` shows as modified after a build later — that's gitignored.
 
 ## Step 1 — Gather state
 
 ```sh
-node -p "require('./package.json').version"   # current version
-git describe --tags --abbrev=0 2>/dev/null    # last release tag (may be absent)
+node -p "require('./package.json').version"          # current version
+git describe --tags --abbrev=0 2>/dev/null           # last release tag (may be absent)
+npm view telegram-agent-kit version --prefer-online  # last version on npm
 ```
+
+`--prefer-online` skips the npm cache: a stale version would make a finished
+release look like a failed one. Call the last tag `<tag>`. Before anything else,
+check that the previous release is finished. A session can end while its CI
+runs, and leave it half done.
+
+**A tag that reached npm with no published release.** When `npm view` prints the
+version of `<tag>`, check its GitHub Release:
+`gh release view <tag> --json isDraft -q .isDraft`. If it prints `true`, or
+fails with `release not found`, finish that release at Step 8, **On success**,
+with `<version>` as the version of `<tag>`.
+
+**A tag that never reached npm.** When `<tag>` is not `v` + the `npm view`
+version, the publish of `<tag>` has not reached npm. Find its run with
+`gh run list --workflow=release.yml --branch <tag> --limit=1`, and choose by its
+state:
+
+- **Still running, or succeeded:** the publish is not done yet, or the registry
+  lags. Do not start a new release: finish that one at Step 8, with `<version>` as
+  the version of `<tag>`.
+- **Failed or cancelled:** read why with `gh run view <run-id> --log-failed`. A
+  rerun runs the files of the tagged commit again, so judge the cause from those
+  files (`git show <tag>:.github/workflows/release.yml`,
+  `git show <tag>:package.json`), not from `HEAD`.
+  - A cause outside the repository, a cancelled run, or a transient error (the
+    network, a registry outage): a rerun of that run fixes it, not a new version.
+    Go to Step 8, **On failure**, with `<version>` as the version of `<tag>`.
+  - A cause in those files: when `HEAD` still has it, pause the release. Tell the
+    user, commit the fix on `main`, push it, and start again at the preconditions.
+    When `HEAD` has the fix, this run is a **re-cut**. Delete the draft of the
+    failed version if it is still there (`gh release delete <tag> --yes`). Then
+    `<last-tag>` below is `v<npm version>`, not `<tag>`, so the range also holds
+    the commits of the failed version, which ship in this one.
+
+When a release finished at Step 8 this way, start again at the preconditions for
+the commits after its tag.
 
 Then collect the commits since the last tag. If there is **no** prior tag, use the
 whole history (`git log --oneline`) — this is the first release.
@@ -91,6 +133,11 @@ specially (anything may change in `0.x`, so breaking changes don't force a major
 - `feat:` → **minor**
 - everything else → **patch**
 
+**Re-cut.** Apply the rules to the npm version, not to the `package.json` version,
+which is the failed one. If the result is not above the failed version, propose the
+next patch of the failed version: npm has `0.9.2`, `v0.10.0` failed, the range
+holds `feat` → minor → `0.10.0`, not above → `0.10.1`.
+
 State the proposed new version explicitly and get a yes (or an override) before
 editing files. This is the only judgement call in the flow — don't skip the confirm.
 
@@ -117,6 +164,8 @@ Conventions to follow:
   engine", "Turn-loop bridge", "/deepagents") over commit hashes.
 - Insert the new section directly under the `# Changelog` title, above the previous
   version's section.
+- In a re-cut, `CHANGELOG.md` already has a section for the failed version, which
+  is not on npm. Merge its bullets into the new section and remove its heading.
 
 ## Step 4 — Apply the edits
 
@@ -218,9 +267,12 @@ gh run watch --exit-status $(gh run list --workflow=release.yml --limit=1 --json
 **On success** — confirm the version is live, then flip the draft to published:
 
 ```sh
-npm view telegram-agent-kit version          # should print <version>
-gh release edit v<version> --draft=false      # publish the GitHub Release
+npm view telegram-agent-kit version --prefer-online   # should print <version>; the registry can lag a minute, so retry
+gh release edit v<version> --draft=false               # publish the GitHub Release
 ```
+
+If `v<version>` has no draft, because the session that pushed the tag ended
+before `gh release create`, create it first with the Step 7 command and notes.
 
 Report the published version plus the npm and GitHub Release URLs.
 
@@ -229,29 +281,35 @@ the failing log. Common causes:
 
 - `E404 Not Found - PUT https://registry.npmjs.org/telegram-agent-kit` or
   `ENEEDAUTH`: npm could not authenticate through trusted publishing. Check the
-  workflow first: it needs `permissions: id-token: write` and npm 11.5.1 or later
-  (Node 24 ships it). A gap there is in the repository. Otherwise the trusted
-  publisher on npmjs.com does not match the run (owner, repository, workflow file
-  name, environment), or it does not allow `npm publish`.
+  workflow of the tagged commit first
+  (`git show v<version>:.github/workflows/release.yml`): it needs
+  `permissions: id-token: write` and npm 11.5.1 or later. The setup-node step of
+  the log names the Node version: Node 24.5.0 and later ship npm 11.5.1 or later,
+  24.0 to 24.4 ship an older npm. A gap there is in the repository, even when a
+  later commit fixed it, because a rerun runs the tagged commit. Otherwise the
+  trusted publisher on npmjs.com does not match the run (owner, repository,
+  workflow file name, environment), or it does not allow `npm publish`.
 - A provenance error: the `repository` field is missing from `package.json`, or
   it does not match the GitHub repository.
 
 The tag is already pushed, so never retag the same version. First check whether
-the version reached npm: `npm view telegram-agent-kit@<version> version`. If it
-prints `<version>`, the publish went through: go on with **On success**. If it
-exits 1 with `npm error 404 No match found for version <version>`, choose by where
-the cause is:
+the version reached npm:
+`npm view telegram-agent-kit@<version> version --prefer-online`. If it prints
+`<version>`, the publish went through: go on with **On success**. If it exits 1
+with `npm error 404 No match found for version <version>`, choose by where the
+cause is:
 
-- **Outside the repository** (the npm settings, a GitHub setting): fix the cause,
-  then rerun the failed run with `gh run rerun <run-id>`, where `<run-id>` is what
-  `gh run list --workflow=release.yml --limit=1 --json databaseId -q '.[0].databaseId'`
+- **Outside the repository** (the npm settings, a GitHub setting): only the user
+  can change them. Ask the user to fix the cause and confirm. A cancelled run or a
+  transient error (the network, a registry outage) needs no fix. Then rerun the
+  failed run with `gh run rerun <run-id>`, where `<run-id>` is what
+  `gh run list --workflow=release.yml --branch v<version> --limit=1 --json databaseId -q '.[0].databaseId'`
   prints. The rerun runs the tagged commit and publishes the same tag. Watch it with
   `gh run watch --exit-status <run-id>`, and when it succeeds, go on with
   **On success**.
-- **In the repository** (the workflow, `package.json`): fix it in a new commit and
-  cut the **next** patch. Delete the draft of the failed version with
-  `gh release delete v<version>`: that version is not on npm. The tag stays. Step 7
-  of the re-cut makes the draft of the next version. The changes of the failed
-  version ship in the next one, so in the re-cut, Steps 1, 3 and 7 read the commits
-  since the last tag that reached npm, not since the failed tag. Merge the
-  CHANGELOG section of the failed version into the next section.
+- **In the repository** (the workflow or `package.json` of the tagged commit): fix
+  it in a new commit. Delete the draft of the failed version with
+  `gh release delete v<version> --yes`: that version is not on npm. The tag
+  stays. Then release again from the preconditions: Step 1 finds the failed tag
+  and runs a **re-cut**, which ships the failed version's changes in the next
+  version.
